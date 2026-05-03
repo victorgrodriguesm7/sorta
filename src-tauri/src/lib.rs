@@ -15,6 +15,7 @@ pub mod db;
 pub mod error;
 pub mod organizer;
 pub mod scanner;
+pub mod tmdb;
 
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn run() {
