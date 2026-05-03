@@ -1,0 +1,43 @@
+[package]
+name = "sorta"
+version = "0.1.0"
+description = "Sort and organize a hard drive of movies and TV series using TMDB."
+authors = ["Sorta Contributors"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "sorta_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "sync", "time"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "macros", "migrate"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+notify = "6"
+notify-debouncer-full = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+walkdir = "2"
+regex = "1"
+once_cell = "1"
+unicode-normalization = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
+wiremock = "0.6"
+tokio-test = "0.4"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
