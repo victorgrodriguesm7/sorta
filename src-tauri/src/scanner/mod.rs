@@ -5,6 +5,10 @@
 
 pub mod classify;
 pub mod entry;
+pub mod walker;
+pub mod watcher;
 
 pub use classify::*;
 pub use entry::*;
+pub use walker::*;
+pub use watcher::*;
