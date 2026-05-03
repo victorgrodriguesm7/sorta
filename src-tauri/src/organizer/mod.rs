@@ -3,10 +3,12 @@
 //! Everything in this module is intentionally side-effect-free so it can
 //! be unit-tested without touching the filesystem.
 
+pub mod execute;
 pub mod naming;
 pub mod plan;
 pub mod sidecars;
 
+pub use execute::*;
 pub use naming::*;
 pub use plan::*;
 pub use sidecars::*;
