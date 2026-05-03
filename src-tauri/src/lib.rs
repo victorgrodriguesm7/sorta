@@ -11,6 +11,7 @@
 //! Pure modules are unit-tested; integration tests live alongside the
 //! impure ones with `tempfile` / `wiremock`.
 
+pub mod db;
 pub mod error;
 pub mod organizer;
 pub mod scanner;
