@@ -4,5 +4,7 @@
 //! `walkdir`-driven scanner will be added in Phase 5 alongside the watcher.
 
 pub mod classify;
+pub mod entry;
 
 pub use classify::*;
+pub use entry::*;
