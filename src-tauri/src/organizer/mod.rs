@@ -4,5 +4,9 @@
 //! be unit-tested without touching the filesystem.
 
 pub mod naming;
+pub mod plan;
+pub mod sidecars;
 
 pub use naming::*;
+pub use plan::*;
+pub use sidecars::*;
