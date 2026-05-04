@@ -68,6 +68,7 @@ pub fn run() {
             commands::link::reorder_media_genres,
             commands::link::link_as_series,
             commands::link::update_season_label,
+            commands::link::unlink_media,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -68,6 +68,25 @@ pub fn parse_tmdb_id(folder: &str) -> Option<i64> {
         .and_then(|m| m.as_str().parse::<i64>().ok())
 }
 
+/// Strip the `[tmdb-{id}]` suffix from a catalogued folder/file name and
+/// return the bare title. Returns `None` if the name doesn't match the
+/// convention. Trailing whitespace is trimmed.
+///
+/// ```text
+/// strip_tmdb_tag("Inception [tmdb-27205]") == Some("Inception".into())
+/// strip_tmdb_tag("Inception")              == None
+/// ```
+pub fn strip_tmdb_tag(name: &str) -> Option<String> {
+    let trimmed = name.trim_end();
+    let m = TMDB_TAG.find(trimmed)?;
+    let prefix = trimmed[..m.start()].trim_end();
+    if prefix.is_empty() {
+        None
+    } else {
+        Some(prefix.to_string())
+    }
+}
+
 /// Returns true if the folder name matches the catalogued convention
 /// (`<non-empty title> [tmdb-<id>]`).
 pub fn is_catalogued_folder(folder: &str) -> bool {
@@ -132,6 +151,21 @@ mod tests {
         assert_eq!(parse_tmdb_id("Inception (2010)"), None);
         assert_eq!(parse_tmdb_id("[tmdb-]"), None);
         assert_eq!(parse_tmdb_id(""), None);
+    }
+
+    #[test]
+    fn strip_tmdb_tag_returns_bare_title() {
+        assert_eq!(
+            strip_tmdb_tag("Inception [tmdb-27205]").as_deref(),
+            Some("Inception")
+        );
+        assert_eq!(
+            strip_tmdb_tag("Cidade de Deus [tmdb-598]   ").as_deref(),
+            Some("Cidade de Deus")
+        );
+        assert_eq!(strip_tmdb_tag("Inception"), None);
+        assert_eq!(strip_tmdb_tag("[tmdb-1]"), None);
+        assert_eq!(strip_tmdb_tag(""), None);
     }
 
     #[test]

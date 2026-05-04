@@ -150,4 +150,12 @@ export const api = {
     }),
   updateSeasonLabel: (label: string) =>
     invoke<void>("update_season_label", { label }),
+  unlinkMedia: (mediaId: number, renameBack = true) =>
+    invoke<{
+      removed_media_id: number;
+      new_folder_path: string | null;
+      poster_deleted: boolean;
+    }>("unlink_media", {
+      args: { media_id: mediaId, rename_back: renameBack },
+    }),
 };

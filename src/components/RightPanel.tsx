@@ -7,7 +7,7 @@ import GenreEditor from "./GenreEditor";
 
 export default function RightPanel() {
   const { t } = useTranslation();
-  const { selection, refresh, config } = useLibrary();
+  const { selection, refresh, config, selectItem } = useLibrary();
   const [searchOpen, setSearchOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -15,10 +15,13 @@ export default function RightPanel() {
   const [genres, setGenres] = useState<GenreRow[]>([]);
   const [editingGenres, setEditingGenres] = useState(false);
   const [posterSrc, setPosterSrc] = useState<string | null>(null);
+  const [unlinkConfirm, setUnlinkConfirm] = useState(false);
+  const [unlinking, setUnlinking] = useState(false);
 
   useEffect(() => {
     setRenaming(false);
     setEditingGenres(false);
+    setUnlinkConfirm(false);
     setError(null);
     if (selection?.kind === "media") {
       setNewTitle(selection.row.title);
@@ -232,7 +235,52 @@ export default function RightPanel() {
           >
             {t("actions.search")}
           </button>
+          <button
+            className="rounded border border-red-900/60 px-3 py-1.5 text-sm text-red-300 hover:bg-red-900/30"
+            onClick={() => setUnlinkConfirm(true)}
+          >
+            {t("actions.unlink", "Unlink")}
+          </button>
         </div>
+
+        {unlinkConfirm && (
+          <div className="rounded border border-red-900/60 bg-red-900/20 p-3 text-sm text-red-100">
+            <p className="mb-2">
+              {t(
+                "actions.unlink_confirm",
+                "Unlink this from TMDB? The folder will be renamed back so it shows up under Uncatalogued. The cached poster will be deleted. Files will not be deleted.",
+              )}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setUnlinkConfirm(false)}
+                className="rounded px-2 py-1 text-xs text-neutral-300 hover:text-white"
+              >
+                {t("actions.cancel")}
+              </button>
+              <button
+                disabled={unlinking}
+                onClick={async () => {
+                  setUnlinking(true);
+                  setError(null);
+                  try {
+                    await api.unlinkMedia(row.id, true);
+                    selectItem(null);
+                    await refresh();
+                  } catch (e) {
+                    setError((e as Error).message);
+                  } finally {
+                    setUnlinking(false);
+                    setUnlinkConfirm(false);
+                  }
+                }}
+                className="rounded bg-red-700 px-3 py-1 text-xs text-white hover:bg-red-600 disabled:opacity-40"
+              >
+                {t("actions.unlink", "Unlink")}
+              </button>
+            </div>
+          </div>
+        )}
 
         {searchOpen && (
           <SearchDialog
