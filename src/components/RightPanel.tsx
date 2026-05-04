@@ -14,6 +14,7 @@ export default function RightPanel() {
   const [error, setError] = useState<string | null>(null);
   const [genres, setGenres] = useState<GenreRow[]>([]);
   const [editingGenres, setEditingGenres] = useState(false);
+  const [posterSrc, setPosterSrc] = useState<string | null>(null);
 
   useEffect(() => {
     setRenaming(false);
@@ -26,8 +27,21 @@ export default function RightPanel() {
         .listMediaGenres(id)
         .then(setGenres)
         .catch((e) => setError((e as Error).message));
+      // Prefer the locally cached poster (returned as a data: URL by the
+      // backend); fall back to whatever poster_url the row stored
+      // (typically the TMDB CDN).
+      setPosterSrc(selection.row.poster_url ?? null);
+      void api
+        .getPosterUrl(id)
+        .then((src) => {
+          if (src) setPosterSrc(src);
+        })
+        .catch(() => {
+          /* non-fatal: keep the fallback */
+        });
     } else {
       setGenres([]);
+      setPosterSrc(null);
     }
   }, [selection]);
 
@@ -76,7 +90,6 @@ export default function RightPanel() {
   }
 
   const { row } = selection;
-  const posterSrc = row.poster_url ?? undefined;
   const baseUrl = config?.hd_root ?? "";
 
   const handleRename = async () => {
