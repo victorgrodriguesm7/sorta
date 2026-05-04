@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::organizer::naming::parse_tmdb_id;
 use crate::scanner::entry::{
-    classify_folder, is_poster_cache_dir, is_season_folder_name, is_system_dir,
-    FolderClassification,
+    is_poster_cache_dir, is_season_folder_name, is_system_dir,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,16 +20,17 @@ pub struct CataloguedHit {
     pub video_filename: String,
 }
 
-/// What sort of uncatalogued item the walker thinks a folder is. The link
-/// flow uses this hint to decide whether to rename a single video file
-/// (Movie) or the whole folder tree (Series).
+/// What sort of uncatalogued item the walker thinks a video file is. The
+/// frontend uses this hint to suggest whether the user should link as a
+/// movie (single-pick) or as a series (multi-select + "Catalog as series").
+///
+/// The walker assigns `Series` when the file's containing folder holds
+/// 2+ direct videos, OR the file lives inside a folder whose siblings
+/// look like season folders. Otherwise `Movie`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UncataloguedKind {
-    /// One video file directly inside `folder`.
     Movie,
-    /// Either multiple video files directly inside `folder` (flat episode
-    /// dump) or `folder` contains "Season N"-shaped subdirectories.
     Series,
 }
 
@@ -162,79 +162,33 @@ fn walk(dir: &Path, out: &mut ScanReport) -> AppResult<()> {
         return Ok(());
     }
 
-    // Detect "this folder is a TV series root" — its immediate children
-    // look like season folders ("Season 1", "Temporada 2", "S01", ...).
-    // If so, surface IT as the uncatalogued series and don't descend
-    // (otherwise each season would be reported individually).
-    let has_season_children = child_dirs.iter().any(|p| {
-        p.file_name()
-            .and_then(|n| n.to_str())
-            .map(is_season_folder_name)
-            .unwrap_or(false)
-    });
-    let direct_video_count = file_names
-        .iter()
-        .filter(|n| crate::scanner::classify::is_video_file(Path::new(n.as_str())))
-        .count();
+    use crate::scanner::classify::is_video_file;
 
-    if direct_video_count == 0 && has_season_children {
-        let video_filename = first_video_recursive(dir).unwrap_or_default();
+    // Emit one entry per direct video file. `kind` is Series if there
+    // are multiple direct videos here OR the parent folder itself looks
+    // like a season folder (so the user can multi-select episodes for
+    // bulk "Catalog as series").
+    let direct_videos: Vec<&String> = file_names
+        .iter()
+        .filter(|n| is_video_file(Path::new(n.as_str())))
+        .collect();
+    let folder_is_season = is_season_folder_name(&basename);
+    let kind = if direct_videos.len() >= 2 || folder_is_season {
+        UncataloguedKind::Series
+    } else {
+        UncataloguedKind::Movie
+    };
+    for v in &direct_videos {
         out.uncatalogued.push(UncataloguedHit {
             folder: dir.to_path_buf(),
-            video_filename,
-            kind: UncataloguedKind::Series,
+            video_filename: (*v).clone(),
+            kind,
         });
-        return Ok(());
-    }
-
-    // Classify the videos in THIS folder (if any) — without preventing
-    // recursion into subdirectories. A folder can simultaneously hold an
-    // uncatalogued movie AND nest more movies in subfolders.
-    match classify_folder(&basename, &file_names) {
-        FolderClassification::Catalogued {
-            tmdb_id,
-            video_filename,
-        } => {
-            out.catalogued.push(CataloguedHit {
-                folder: dir.to_path_buf(),
-                tmdb_id,
-                video_filename,
-            });
-        }
-        FolderClassification::Uncatalogued { video_filename } => {
-            out.uncatalogued.push(UncataloguedHit {
-                folder: dir.to_path_buf(),
-                video_filename,
-                kind: UncataloguedKind::Movie,
-            });
-        }
-        FolderClassification::SkippedMultipleVideos { count } => {
-            // A folder with >=2 direct videos is almost always a flat
-            // series dump (Lupin/E1.mkv, E2.mkv, ...). Surface it as an
-            // uncatalogued series candidate so the user can link it.
-            // Don't recurse: those videos are episodes.
-            let video_filename = file_names
-                .iter()
-                .find(|n| crate::scanner::classify::is_video_file(Path::new(n.as_str())))
-                .cloned()
-                .unwrap_or_default();
-            out.uncatalogued.push(UncataloguedHit {
-                folder: dir.to_path_buf(),
-                video_filename,
-                kind: UncataloguedKind::Series,
-            });
-            // Track for diagnostics; not user-actionable.
-            out.skipped.push(SkippedHit {
-                folder: dir.to_path_buf(),
-                video_count: count,
-            });
-            return Ok(());
-        }
-        FolderClassification::NoVideos => {}
     }
 
     // Always recurse into subdirectories so movies nested arbitrarily
-    // deep are still discovered.
+    // deep are still discovered. Catalogued containers were short-
+    // circuited above.
     for child in child_dirs {
         walk(&child, out)?;
     }
@@ -266,9 +220,8 @@ mod tests {
         touch(&hd.join("Series/Game of Thrones [tmdb-1399]/Season 1/E1.mkv"));
         // Uncatalogued movie.
         touch(&hd.join("Imports/Some Movie 2019/movie.mp4"));
-        // Folder with multiple direct videos — now surfaced as an
-        // uncatalogued *series* candidate (and also recorded in `skipped`
-        // for diagnostics).
+        // Folder with multiple direct videos — each now surfaced as its
+        // own uncatalogued entry tagged Series.
         touch(&hd.join("Imports/Bundle/a.mkv"));
         touch(&hd.join("Imports/Bundle/b.mkv"));
         // Poster cache must be ignored.
@@ -303,11 +256,20 @@ mod tests {
 
         let unc_paths: Vec<&Path> = report.uncatalogued.iter().map(|u| u.folder.as_path()).collect();
         assert!(unc_paths.contains(&hd.join("Imports/Some Movie 2019").as_path()));
-        // Bundle is now an uncatalogued series candidate too.
-        assert!(unc_paths.contains(&hd.join("Imports/Bundle").as_path()));
-
-        assert_eq!(report.skipped.len(), 1);
-        assert_eq!(report.skipped[0].folder, hd.join("Imports/Bundle"));
+        // Both Bundle videos appear as separate Series entries.
+        let bundle_count = report
+            .uncatalogued
+            .iter()
+            .filter(|u| u.folder == hd.join("Imports/Bundle"))
+            .count();
+        assert_eq!(bundle_count, 2, "{:#?}", report);
+        let bundle_kinds: Vec<UncataloguedKind> = report
+            .uncatalogued
+            .iter()
+            .filter(|u| u.folder == hd.join("Imports/Bundle"))
+            .map(|u| u.kind)
+            .collect();
+        assert!(bundle_kinds.iter().all(|k| *k == UncataloguedKind::Series));
     }
 
     #[test]
@@ -319,8 +281,6 @@ mod tests {
 
     #[test]
     fn scan_recurses_into_subfolders_even_when_parent_has_videos() {
-        // Parent folder has its own video file AND a subfolder containing
-        // another movie. We must surface BOTH as uncatalogued movies.
         let tmp = TempDir::new().unwrap();
         let hd = tmp.path();
         touch(&hd.join("Library/Top Movie/top.mkv"));
@@ -329,24 +289,14 @@ mod tests {
         let report = scan(hd).unwrap();
         let folders: Vec<&Path> =
             report.uncatalogued.iter().map(|u| u.folder.as_path()).collect();
-        assert!(
-            folders.contains(&hd.join("Library/Top Movie").as_path()),
-            "{:#?}",
-            report
-        );
-        assert!(
-            folders.contains(&hd.join("Library/Top Movie/Inner Movie").as_path()),
-            "{:#?}",
-            report
-        );
-        for u in &report.uncatalogued {
-            assert_eq!(u.kind, UncataloguedKind::Movie);
-        }
+        assert!(folders.contains(&hd.join("Library/Top Movie").as_path()));
+        assert!(folders.contains(&hd.join("Library/Top Movie/Inner Movie").as_path()));
     }
 
     #[test]
-    fn scan_treats_multi_video_folder_as_uncatalogued_series() {
-        // Flat dump of episodes inside a single folder (no Season subdir).
+    fn scan_emits_one_hit_per_video_in_multi_video_folder() {
+        // Flat episode dump in a single folder. Every episode must be
+        // listed individually so the user can multi-select them in the UI.
         let tmp = TempDir::new().unwrap();
         let hd = tmp.path();
         touch(&hd.join("Lupin/E1.mkv"));
@@ -354,25 +304,26 @@ mod tests {
         touch(&hd.join("Lupin/E3.mkv"));
 
         let report = scan(hd).unwrap();
-        let folders: Vec<&Path> =
-            report.uncatalogued.iter().map(|u| u.folder.as_path()).collect();
-        assert!(
-            folders.contains(&hd.join("Lupin").as_path()),
-            "{:#?}",
-            report
-        );
-        let lupin = report
+        let names: Vec<&str> = report
             .uncatalogued
             .iter()
-            .find(|u| u.folder == hd.join("Lupin"))
-            .unwrap();
-        assert_eq!(lupin.kind, UncataloguedKind::Series);
+            .filter(|u| u.folder == hd.join("Lupin"))
+            .map(|u| u.video_filename.as_str())
+            .collect();
+        assert_eq!(names.len(), 3, "{:#?}", report);
+        for n in ["E1.mkv", "E2.mkv", "E3.mkv"] {
+            assert!(names.contains(&n), "{n} missing from {:#?}", names);
+        }
+        for u in &report.uncatalogued {
+            assert_eq!(u.kind, UncataloguedKind::Series);
+        }
     }
 
     #[test]
-    fn scan_surfaces_series_root_when_subdirs_look_like_seasons() {
+    fn scan_lists_episodes_under_season_folders_individually() {
         // The user-reported case: M:/serie/9-1-1/Season 1/episodes...
-        // The walker must surface "9-1-1" (and "Lupin"), not "Season X".
+        // Every episode file must show up so they can be multi-selected
+        // and bulk-linked via "Catalog as series".
         let tmp = TempDir::new().unwrap();
         let hd = tmp.path();
         touch(&hd.join("serie/9-1-1/Season 1/E1.mkv"));
@@ -381,30 +332,31 @@ mod tests {
         touch(&hd.join("serie/Lupin/Season 1/E1.mkv"));
 
         let report = scan(hd).unwrap();
-        let folders: Vec<&Path> =
-            report.uncatalogued.iter().map(|u| u.folder.as_path()).collect();
-        assert!(
-            folders.contains(&hd.join("serie/9-1-1").as_path()),
-            "9-1-1 not in {:#?}",
-            report
-        );
-        assert!(
-            folders.contains(&hd.join("serie/Lupin").as_path()),
-            "Lupin not in {:#?}",
-            report
-        );
-        // The Season subfolders themselves must NOT be surfaced.
+        // 4 episode files total.
+        assert_eq!(report.uncatalogued.len(), 4, "{:#?}", report);
+        // Every hit's folder should be a Season folder, never the show
+        // root (we no longer pretend the show root is a single linkable
+        // entity — the new flow is multi-select episodes).
         for u in &report.uncatalogued {
-            assert!(
-                !u.folder.to_string_lossy().contains("Season "),
-                "Season folder leaked into uncatalogued: {:?}",
-                u
-            );
+            let f = u.folder.to_string_lossy().to_string();
+            assert!(f.contains("Season "), "{f} should be a Season dir");
         }
-        // Both must be tagged as Series.
+        // Episodes inside a Season folder are tagged Series even when
+        // there's only one of them (parent-name heuristic).
         for u in &report.uncatalogued {
             assert_eq!(u.kind, UncataloguedKind::Series, "{:?}", u);
         }
+    }
+
+    #[test]
+    fn scan_tags_single_video_in_plain_folder_as_movie() {
+        let tmp = TempDir::new().unwrap();
+        let hd = tmp.path();
+        touch(&hd.join("Imports/Some Movie/movie.mkv"));
+
+        let report = scan(hd).unwrap();
+        assert_eq!(report.uncatalogued.len(), 1);
+        assert_eq!(report.uncatalogued[0].kind, UncataloguedKind::Movie);
     }
 
     #[test]

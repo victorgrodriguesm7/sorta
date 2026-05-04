@@ -11,7 +11,9 @@ use crate::db::genres::{
 use crate::db::media::{
     find_by_id, find_by_tmdb_id, insert_media, update_folder_path, MediaRow, MediaType, NewMedia,
 };
-use crate::db::settings::{get_setting_or, KEY_MOVIES_LABEL, KEY_SERIES_LABEL};
+use crate::db::settings::{
+    get_setting_or, KEY_MOVIES_LABEL, KEY_SEASON_LABEL, KEY_SERIES_LABEL,
+};
 use crate::error::{AppError, AppResult};
 use crate::organizer::execute::{execute_link, merge_genre_folders};
 use crate::organizer::naming::{folder_name, sanitize_segment};
@@ -463,4 +465,256 @@ pub async fn reorder_media_genres(
     let _ = merge_genre_folders;
 
     Ok(find_by_id(&pool, args.media_id).await?.unwrap())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EpisodeSourceArg {
+    pub folder: PathBuf,
+    pub video_filename: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LinkAsSeriesArgs {
+    pub tmdb_id: i64,
+    pub season: i64,
+    /// First-episode number for the selection. Subsequent files get
+    /// season X, episode start_episode + i. Defaults to 1.
+    #[serde(default = "default_start_episode")]
+    pub start_episode: i64,
+    /// Source files in the order they should become E{start}, E{start+1}, ...
+    pub sources: Vec<EpisodeSourceArg>,
+}
+
+fn default_start_episode() -> i64 {
+    1
+}
+
+#[derive(Debug, Serialize)]
+pub struct LinkSeriesResult {
+    pub media_id: i64,
+    pub series_folder: PathBuf,
+    pub season_folder: PathBuf,
+    pub episodes_moved: usize,
+}
+
+/// Link a batch of episode files to a TV series. Idempotent: if the
+/// series is already in the DB, episodes are added under its existing
+/// folder; otherwise the series row is created and the metadata
+/// (genres, poster) is fetched from TMDB.
+///
+/// Layout produced:
+///   <HD>/<Series label>/<Title> [tmdb-id]/<Season label> N/SXXEYY.ext
+#[tauri::command]
+pub async fn link_as_series(
+    state: State<'_, AppState>,
+    args: LinkAsSeriesArgs,
+) -> AppResult<LinkSeriesResult> {
+    if args.sources.is_empty() {
+        return Err(AppError::Other("at least one episode required".into()));
+    }
+    if args.season < 0 {
+        return Err(AppError::Other("season must be >= 0".into()));
+    }
+    if args.start_episode < 1 {
+        return Err(AppError::Other("start_episode must be >= 1".into()));
+    }
+
+    let (pool, hd_root, tmdb) = {
+        let s = state.read().await;
+        let pool = s
+            .db
+            .clone()
+            .ok_or_else(|| AppError::Other("DB not initialized".into()))?;
+        let hd = s
+            .hd_root
+            .clone()
+            .ok_or_else(|| AppError::Other("HD not set".into()))?;
+        let t = s
+            .tmdb
+            .clone()
+            .ok_or_else(|| AppError::Other("TMDB key not set".into()))?;
+        (pool, hd, t)
+    };
+
+    let series_label = get_setting_or(&pool, KEY_SERIES_LABEL, "Series").await?;
+    let season_label = get_setting_or(&pool, KEY_SEASON_LABEL, "Season").await?;
+    let series_root = hd_root.join(sanitize_segment(&series_label));
+
+    // Either reuse the existing series folder or create a fresh one.
+    let existing = find_by_tmdb_id(&pool, args.tmdb_id, MediaType::Tv).await?;
+    let (media_id, series_folder, title) = if let Some(row) = existing {
+        let folder = hd_root.join(&row.folder_path);
+        if !folder.exists() {
+            return Err(AppError::NotFound(format!(
+                "series folder vanished: {}",
+                folder.display()
+            )));
+        }
+        (row.id, folder, row.title)
+    } else {
+        // Pull metadata from TMDB.
+        let details = tmdb.get_tv(args.tmdb_id).await?;
+        let title = details.name.clone();
+        let original_title = details.original_name.clone();
+        let runtime = details.primary_runtime();
+
+        // Persist all genres up front (FK from media_genres).
+        for g in &details.genres {
+            upsert_genre(&pool, g.id, MediaType::Tv, &g.name).await?;
+        }
+
+        let folder = series_root.join(folder_name(&title, args.tmdb_id));
+        std::fs::create_dir_all(&folder).map_err(AppError::from)?;
+
+        // Best-effort poster download.
+        let (poster_local, poster_remote) = if let Some(pp) = details.poster_path.as_deref() {
+            match save_poster(&hd_root, args.tmdb_id, pp).await {
+                Ok((local, url)) => (Some(local), Some(url)),
+                Err(_) => (None, Some(TmdbClient::poster_url(pp, "w500"))),
+            }
+        } else {
+            (None, None)
+        };
+
+        let folder_rel = folder
+            .strip_prefix(&hd_root)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| folder.to_string_lossy().to_string());
+
+        let media_id = insert_media(
+            &pool,
+            &NewMedia {
+                tmdb_id: args.tmdb_id,
+                media_type: MediaType::Tv,
+                title: &title,
+                original_title: original_title.as_deref(),
+                runtime_minutes: runtime,
+                poster_path: poster_local.as_deref(),
+                poster_url: poster_remote.as_deref(),
+                folder_path: &folder_rel,
+            },
+        )
+        .await?;
+
+        let pairs: Vec<(i64, bool)> = details
+            .genres
+            .iter()
+            .enumerate()
+            .map(|(i, g)| (g.id, i == 0))
+            .collect();
+        if !pairs.is_empty() {
+            set_media_genres(&pool, media_id, MediaType::Tv, &pairs).await?;
+        }
+        (media_id, folder, title)
+    };
+
+    let _ = title; // future use
+
+    let season_folder =
+        series_folder.join(format!("{} {}", sanitize_segment(&season_label), args.season));
+    std::fs::create_dir_all(&season_folder).map_err(AppError::from)?;
+
+    let mut moved = 0usize;
+    for (idx, src) in args.sources.iter().enumerate() {
+        let episode_no = args.start_episode + idx as i64;
+        let from = src.folder.join(&src.video_filename);
+        let ext = std::path::Path::new(&src.video_filename)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("mkv");
+        let new_name = format!("S{:02}E{:02}.{}", args.season, episode_no, ext);
+        let to = season_folder.join(&new_name);
+
+        if !from.is_file() {
+            tracing::warn!("link_as_series: source missing {}", from.display());
+            continue;
+        }
+        if to.exists() {
+            return Err(AppError::Conflict(format!(
+                "destination exists: {}",
+                to.display()
+            )));
+        }
+        if let Err(_) = std::fs::rename(&from, &to) {
+            // Cross-volume fallback.
+            std::fs::copy(&from, &to).map_err(AppError::from)?;
+            std::fs::remove_file(&from).map_err(AppError::from)?;
+        }
+        moved += 1;
+    }
+
+    Ok(LinkSeriesResult {
+        media_id,
+        series_folder,
+        season_folder,
+        episodes_moved: moved,
+    })
+}
+
+/// Settings command: update the translatable Season label. The season
+/// folders inside every catalogued series are renamed accordingly.
+#[tauri::command]
+pub async fn update_season_label(
+    state: State<'_, AppState>,
+    label: String,
+) -> AppResult<()> {
+    use crate::db::settings::set_setting;
+
+    let (pool, hd_root) = {
+        let s = state.read().await;
+        let pool = s
+            .db
+            .clone()
+            .ok_or_else(|| AppError::Other("DB not initialized".into()))?;
+        let hd = s
+            .hd_root
+            .clone()
+            .ok_or_else(|| AppError::Other("HD not set".into()))?;
+        (pool, hd)
+    };
+
+    let old = get_setting_or(&pool, KEY_SEASON_LABEL, "Season").await?;
+    set_setting(&pool, KEY_SEASON_LABEL, &label).await?;
+    if old == label {
+        return Ok(());
+    }
+
+    let series_label = get_setting_or(&pool, KEY_SERIES_LABEL, "Series").await?;
+    let series_root = hd_root.join(sanitize_segment(&series_label));
+    if !series_root.is_dir() {
+        return Ok(());
+    }
+
+    // For every series folder, rename `<old> N` -> `<new> N` subfolders.
+    let old_safe = sanitize_segment(&old);
+    let new_safe = sanitize_segment(&label);
+    let series_iter = match std::fs::read_dir(&series_root) {
+        Ok(it) => it,
+        Err(_) => return Ok(()),
+    };
+    for entry in series_iter.flatten() {
+        let series_path = entry.path();
+        if !series_path.is_dir() {
+            continue;
+        }
+        let season_iter = match std::fs::read_dir(&series_path) {
+            Ok(it) => it,
+            Err(_) => continue,
+        };
+        for season in season_iter.flatten() {
+            let p = season.path();
+            let Some(name) = p.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if let Some(suffix) = name.strip_prefix(&format!("{old_safe} ")) {
+                let new_name = format!("{new_safe} {suffix}");
+                let dest = series_path.join(new_name);
+                if dest.exists() {
+                    continue;
+                }
+                let _ = std::fs::rename(&p, &dest);
+            }
+        }
+    }
+    Ok(())
 }

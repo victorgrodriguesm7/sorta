@@ -6,6 +6,7 @@ use crate::error::{AppError, AppResult};
 
 pub const KEY_MOVIES_LABEL: &str = "movies_folder_label";
 pub const KEY_SERIES_LABEL: &str = "series_folder_label";
+pub const KEY_SEASON_LABEL: &str = "season_label";
 
 /// Get a setting by key.
 pub async fn get_setting(pool: &SqlitePool, key: &str) -> AppResult<Option<String>> {

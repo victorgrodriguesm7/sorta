@@ -86,6 +86,6 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(row.0, 2);
+        assert_eq!(row.0, 3);
     }
 }
