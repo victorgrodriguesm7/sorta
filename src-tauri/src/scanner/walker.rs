@@ -108,8 +108,9 @@ fn walk(dir: &Path, out: &mut ScanReport) -> AppResult<()> {
 
     // Special case: a folder whose name matches the catalogued convention
     // is a "container" (typical for TV series with season subfolders).
-    // We treat it as catalogued without recursing further. The first video
-    // found anywhere underneath (best-effort) becomes its `video_filename`.
+    // We treat it as catalogued without recursing further so that the
+    // individual episodes inside season folders aren't surfaced as
+    // "uncatalogued" themselves.
     if let Some(tmdb_id) = parse_tmdb_id(&basename) {
         let video_filename = first_video_recursive(dir).unwrap_or_default();
         out.catalogued.push(CataloguedHit {
@@ -120,9 +121,10 @@ fn walk(dir: &Path, out: &mut ScanReport) -> AppResult<()> {
         return Ok(());
     }
 
-    let classification = classify_folder(&basename, &file_names);
-
-    match classification {
+    // Classify the videos in THIS folder (if any) — without preventing
+    // recursion into subdirectories. A folder can simultaneously hold an
+    // uncatalogued movie AND nest more movies in subfolders.
+    match classify_folder(&basename, &file_names) {
         FolderClassification::Catalogued {
             tmdb_id,
             video_filename,
@@ -132,7 +134,6 @@ fn walk(dir: &Path, out: &mut ScanReport) -> AppResult<()> {
                 tmdb_id,
                 video_filename,
             });
-            // Don't recurse into season subfolders etc.
         }
         FolderClassification::Uncatalogued { video_filename } => {
             out.uncatalogued.push(UncataloguedHit {
@@ -146,11 +147,13 @@ fn walk(dir: &Path, out: &mut ScanReport) -> AppResult<()> {
                 video_count: count,
             });
         }
-        FolderClassification::NoVideos => {
-            for child in child_dirs {
-                walk(&child, out)?;
-            }
-        }
+        FolderClassification::NoVideos => {}
+    }
+
+    // Always recurse into subdirectories so movies nested arbitrarily
+    // deep are still discovered.
+    for child in child_dirs {
+        walk(&child, out)?;
     }
     Ok(())
 }
@@ -225,5 +228,62 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let missing = tmp.path().join("does-not-exist");
         assert!(matches!(scan(&missing), Err(AppError::InvalidPath(_))));
+    }
+
+    #[test]
+    fn scan_recurses_into_subfolders_even_when_parent_has_videos() {
+        // Parent folder has its own video file AND a subfolder containing
+        // another movie. We must surface BOTH as uncatalogued.
+        let tmp = TempDir::new().unwrap();
+        let hd = tmp.path();
+        touch(&hd.join("Library/Top Movie/top.mkv"));
+        touch(&hd.join("Library/Top Movie/Inner Movie/inner.mkv"));
+
+        let report = scan(hd).unwrap();
+        let folders: Vec<&Path> =
+            report.uncatalogued.iter().map(|u| u.folder.as_path()).collect();
+        assert!(
+            folders.contains(&hd.join("Library/Top Movie").as_path()),
+            "{:#?}",
+            report
+        );
+        assert!(
+            folders.contains(&hd.join("Library/Top Movie/Inner Movie").as_path()),
+            "{:#?}",
+            report
+        );
+    }
+
+    #[test]
+    fn scan_recurses_into_subfolders_of_skipped_parents() {
+        // Parent has two videos directly (skipped) but also has a subdir
+        // with a single video that should be classified.
+        let tmp = TempDir::new().unwrap();
+        let hd = tmp.path();
+        touch(&hd.join("Bundle/a.mkv"));
+        touch(&hd.join("Bundle/b.mkv"));
+        touch(&hd.join("Bundle/Inner/c.mkv"));
+
+        let report = scan(hd).unwrap();
+        assert_eq!(report.skipped.len(), 1);
+        assert_eq!(report.skipped[0].folder, hd.join("Bundle"));
+        let folders: Vec<&Path> =
+            report.uncatalogued.iter().map(|u| u.folder.as_path()).collect();
+        assert!(folders.contains(&hd.join("Bundle/Inner").as_path()), "{:#?}", report);
+    }
+
+    #[test]
+    fn scan_does_not_descend_into_catalogued_containers() {
+        // A catalogued folder (TV series with episodes inside season subdirs)
+        // should NOT have its inner episodes surfaced as uncatalogued.
+        let tmp = TempDir::new().unwrap();
+        let hd = tmp.path();
+        touch(&hd.join("Series/Game of Thrones [tmdb-1399]/Season 1/E1.mkv"));
+        touch(&hd.join("Series/Game of Thrones [tmdb-1399]/Season 1/E2.mkv"));
+
+        let report = scan(hd).unwrap();
+        assert_eq!(report.catalogued.len(), 1);
+        assert!(report.uncatalogued.is_empty(), "{:#?}", report);
+        assert!(report.skipped.is_empty(), "{:#?}", report);
     }
 }
