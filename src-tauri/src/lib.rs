@@ -59,6 +59,7 @@ pub fn run() {
             commands::tmdb_cmds::tmdb_get_movie,
             commands::tmdb_cmds::tmdb_get_tv,
             commands::tmdb_cmds::tmdb_list_genres,
+            commands::tmdb_cmds::tmdb_sync_genres,
             commands::link::link_media,
             commands::link::rename_media,
             commands::link::list_media_genres,

@@ -150,6 +150,7 @@ export default function RightPanel() {
           {editingGenres ? (
             <GenreEditor
               mediaId={row.id}
+              mediaType={row.media_type === "tv" ? "tv" : "movie"}
               initialGenres={genres}
               onClose={() => setEditingGenres(false)}
               onSaved={async () => {
