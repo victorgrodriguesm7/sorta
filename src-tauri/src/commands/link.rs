@@ -480,12 +480,21 @@ pub struct LinkAsSeriesArgs {
     /// season X, episode start_episode + i. Defaults to 1.
     #[serde(default = "default_start_episode")]
     pub start_episode: i64,
+    /// If true (default), each source file is renamed to S{XX}E{YY}.{ext}
+    /// when moved into the season folder. If false, the original
+    /// filename is kept verbatim — useful when the user already has a
+    /// custom naming scheme they want to preserve.
+    #[serde(default = "default_true_series")]
+    pub rename: bool,
     /// Source files in the order they should become E{start}, E{start+1}, ...
     pub sources: Vec<EpisodeSourceArg>,
 }
 
 fn default_start_episode() -> i64 {
     1
+}
+fn default_true_series() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize)]
@@ -514,8 +523,8 @@ pub async fn link_as_series(
     if args.season < 0 {
         return Err(AppError::Other("season must be >= 0".into()));
     }
-    if args.start_episode < 1 {
-        return Err(AppError::Other("start_episode must be >= 1".into()));
+    if args.start_episode < 0 {
+        return Err(AppError::Other("start_episode must be >= 0".into()));
     }
 
     let (pool, hd_root, tmdb) = {
@@ -617,11 +626,18 @@ pub async fn link_as_series(
     for (idx, src) in args.sources.iter().enumerate() {
         let episode_no = args.start_episode + idx as i64;
         let from = src.folder.join(&src.video_filename);
-        let ext = std::path::Path::new(&src.video_filename)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("mkv");
-        let new_name = format!("S{:02}E{:02}.{}", args.season, episode_no, ext);
+        let new_name = if args.rename {
+            let ext = std::path::Path::new(&src.video_filename)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("mkv");
+            format!("S{:02}E{:02}.{}", args.season, episode_no, ext)
+        } else {
+            // Preserve the original filename verbatim. Strip illegal
+            // characters in case it contains anything that would break
+            // on the target filesystem.
+            sanitize_segment(&src.video_filename)
+        };
         let to = season_folder.join(&new_name);
 
         if !from.is_file() {

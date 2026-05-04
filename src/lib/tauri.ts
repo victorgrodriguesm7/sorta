@@ -130,6 +130,7 @@ export const api = {
     tmdbId: number;
     season: number;
     startEpisode?: number;
+    rename?: boolean;
     sources: { folder: string; videoFilename: string }[];
   }) =>
     invoke<{
@@ -142,6 +143,7 @@ export const api = {
         tmdb_id: args.tmdbId,
         season: args.season,
         start_episode: args.startEpisode ?? 1,
+        rename: args.rename ?? true,
         sources: args.sources.map((s) => ({
           folder: s.folder,
           video_filename: s.videoFilename,

@@ -79,6 +79,7 @@ export default function CatalogAsSeriesDialog({
   const [picked, setPicked] = useState<SearchResult | null>(null);
   const [season, setSeason] = useState<number>(1);
   const [startEpisode, setStartEpisode] = useState<number>(1);
+  const [rename, setRename] = useState<boolean>(true);
   // Episodes in apply order. Initial order = walker order.
   const [order, setOrder] = useState<UncataloguedItem[]>(episodes);
   // Per-row checkboxes for multi-select reorder (separate from the
@@ -126,6 +127,24 @@ export default function CatalogAsSeriesDialog({
     void runSearch(query);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Ctrl+ArrowUp / Ctrl+ArrowDown mirror the Move Up / Move Down buttons.
+  // When 1+ rows are checked, the entire selection moves; otherwise the
+  // shortcut is a no-op (there's no "focused" row to move).
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+      if (pickedRows.size === 0) return;
+      e.preventDefault();
+      setOrder((cur) =>
+        e.key === "ArrowUp"
+          ? moveSelectionUp(cur, (it) => pickedRows.has(epKey(it)))
+          : moveSelectionDown(cur, (it) => pickedRows.has(epKey(it))),
+      );
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [pickedRows]);
 
   // Single-row swap — used as a fallback when nothing is checked.
   const swap = (i: number, j: number) => {
@@ -199,6 +218,7 @@ export default function CatalogAsSeriesDialog({
         tmdbId: picked.id,
         season,
         startEpisode,
+        rename,
         sources: order.map((e) => ({
           folder: e.folder,
           videoFilename: e.video_filename,
@@ -214,7 +234,7 @@ export default function CatalogAsSeriesDialog({
 
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 p-6">
-      <div className="flex h-full max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-neutral-700 bg-neutral-900 shadow-xl">
+      <div className="flex h-full max-h-[88vh] w-full max-w-[70vw] flex-col overflow-hidden rounded-lg border border-neutral-700 bg-neutral-900 shadow-xl">
         <header className="flex items-center justify-between border-b border-neutral-800 p-4">
           <h3 className="text-lg font-semibold text-neutral-100">
             {t("series.catalog_as", "Catalog as series")}
@@ -294,7 +314,7 @@ export default function CatalogAsSeriesDialog({
 
           {/* Episode order + season */}
           <section className="flex flex-col overflow-hidden">
-            <div className="flex items-end gap-2 border-b border-neutral-800 p-3">
+            <div className="flex flex-wrap items-end gap-3 border-b border-neutral-800 p-3">
               <label className="flex flex-col text-xs text-neutral-500">
                 {t("series.season", "Season")}
                 <input
@@ -309,11 +329,26 @@ export default function CatalogAsSeriesDialog({
                 {t("series.start_episode", "First episode #")}
                 <input
                   type="number"
-                  min={1}
+                  min={0}
                   value={startEpisode}
                   onChange={(e) => setStartEpisode(Number(e.target.value))}
                   className="mt-1 w-20 rounded bg-neutral-800 px-2 py-1 text-sm text-white outline-none focus:ring-2 focus:ring-accent"
                 />
+              </label>
+              <label
+                className="flex cursor-pointer items-center gap-2 text-xs text-neutral-300"
+                title={t(
+                  "series.rename_help",
+                  "If unchecked, the original filenames are kept when files are moved.",
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={rename}
+                  onChange={(e) => setRename(e.target.checked)}
+                  className="h-4 w-4 cursor-pointer accent-accent"
+                />
+                {t("series.rename_to_standard", "Rename to S{XX}E{YY}")}
               </label>
             </div>
             <div
@@ -378,7 +413,19 @@ export default function CatalogAsSeriesDialog({
                       >
                         ⋮⋮
                       </span>
-                      <span className="w-16 shrink-0 font-mono text-xs text-accent">
+                      <span
+                        className={`w-16 shrink-0 font-mono text-xs ${
+                          rename ? "text-accent" : "text-neutral-600 line-through"
+                        }`}
+                        title={
+                          rename
+                            ? t("series.target_name", "New filename")
+                            : t(
+                                "series.original_kept",
+                                "Original filename will be kept",
+                              )
+                        }
+                      >
                         S{String(season).padStart(2, "0")}E
                         {String(epNo).padStart(2, "0")}
                       </span>
