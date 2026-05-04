@@ -17,6 +17,8 @@ export default function SettingsModal({ onClose }: Props) {
   const [translations, setTranslations] = useState<Record<number, string>>(
     () => Object.fromEntries(movieGenres.map((g) => [g.id, g.translated_name ?? ""])),
   );
+  const [seasonLabel, setSeasonLabel] = useState("Season");
+  const [seasonSaving, setSeasonSaving] = useState(false);
 
   const pickHd = async () => {
     setError(null);
@@ -122,6 +124,38 @@ export default function SettingsModal({ onClose }: Props) {
               <button
                 onClick={saveApiKey}
                 disabled={saving}
+                className="rounded bg-accent px-3 py-2 text-sm text-white hover:bg-accent-hover disabled:opacity-40"
+              >
+                {t("actions.save")}
+              </button>
+            </div>
+          </section>
+
+          <section className="mb-6 space-y-2">
+            <label className="block text-xs uppercase tracking-wide text-neutral-500">
+              {t("settings.season_label", "Season folder name")}
+            </label>
+            <div className="flex gap-2">
+              <input
+                value={seasonLabel}
+                onChange={(e) => setSeasonLabel(e.target.value)}
+                placeholder="Season"
+                className="flex-1 rounded bg-neutral-800 px-3 py-2 text-sm"
+              />
+              <button
+                onClick={async () => {
+                  setSeasonSaving(true);
+                  setError(null);
+                  try {
+                    await api.updateSeasonLabel(seasonLabel.trim() || "Season");
+                    await refresh();
+                  } catch (e) {
+                    setError((e as Error).message);
+                  } finally {
+                    setSeasonSaving(false);
+                  }
+                }}
+                disabled={seasonSaving}
                 className="rounded bg-accent px-3 py-2 text-sm text-white hover:bg-accent-hover disabled:opacity-40"
               >
                 {t("actions.save")}

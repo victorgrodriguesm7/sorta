@@ -24,6 +24,8 @@ interface LibraryState {
   currentList: MediaRow[];
   leftSelection: LeftSelection;
   selection: Selection | null;
+  /** Set of "folder|video_filename" keys for multi-select on uncatalogued. */
+  checked: Set<string>;
   loading: boolean;
   error: string | null;
 
@@ -31,7 +33,11 @@ interface LibraryState {
   refresh: () => Promise<void>;
   selectLeft: (sel: LeftSelection) => Promise<void>;
   selectItem: (sel: Selection | null) => void;
+  toggleChecked: (key: string) => void;
+  clearChecked: () => void;
 }
+
+export const checkKey = (folder: string, file: string) => `${folder}|${file}`;
 
 export const useLibrary = create<LibraryState>((set, get) => ({
   config: null,
@@ -41,8 +47,17 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   currentList: [],
   leftSelection: { kind: "uncatalogued" },
   selection: null,
+  checked: new Set<string>(),
   loading: false,
   error: null,
+
+  toggleChecked: (key: string) => {
+    const cur = new Set(get().checked);
+    if (cur.has(key)) cur.delete(key);
+    else cur.add(key);
+    set({ checked: cur });
+  },
+  clearChecked: () => set({ checked: new Set<string>() }),
 
   async loadConfig() {
     try {
@@ -77,7 +92,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   },
 
   async selectLeft(sel) {
-    set({ leftSelection: sel, selection: null });
+    set({ leftSelection: sel, selection: null, checked: new Set<string>() });
     try {
       if (sel.kind === "movieGenre") {
         const list = await api.listMoviesByGenres(sel.group.map((g) => g.id));

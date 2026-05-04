@@ -126,4 +126,28 @@ export const api = {
     invoke<MediaRow>("reorder_media_genres", {
       args: { media_id: mediaId, genre_ids: genreIds },
     }),
+  linkAsSeries: (args: {
+    tmdbId: number;
+    season: number;
+    startEpisode?: number;
+    sources: { folder: string; videoFilename: string }[];
+  }) =>
+    invoke<{
+      media_id: number;
+      series_folder: string;
+      season_folder: string;
+      episodes_moved: number;
+    }>("link_as_series", {
+      args: {
+        tmdb_id: args.tmdbId,
+        season: args.season,
+        start_episode: args.startEpisode ?? 1,
+        sources: args.sources.map((s) => ({
+          folder: s.folder,
+          video_filename: s.videoFilename,
+        })),
+      },
+    }),
+  updateSeasonLabel: (label: string) =>
+    invoke<void>("update_season_label", { label }),
 };
