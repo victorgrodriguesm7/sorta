@@ -5,13 +5,15 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::db::genres::{primary_genre_for, set_media_genres, upsert_genre, GenreRow};
+use crate::db::genres::{
+    list_genres, primary_genre_for, set_media_genres, upsert_genre, GenreRow,
+};
 use crate::db::media::{
     find_by_id, find_by_tmdb_id, insert_media, update_folder_path, MediaRow, MediaType, NewMedia,
 };
 use crate::db::settings::{get_setting_or, KEY_MOVIES_LABEL, KEY_SERIES_LABEL};
 use crate::error::{AppError, AppResult};
-use crate::organizer::execute::execute_link;
+use crate::organizer::execute::{execute_link, merge_genre_folders};
 use crate::organizer::naming::{folder_name, sanitize_segment};
 use crate::organizer::plan::{plan_link, LinkPlanInput};
 use crate::state::AppState;
@@ -116,26 +118,56 @@ pub async fn link_media(state: State<'_, AppState>, args: LinkArgs) -> AppResult
         }
     };
 
-    // Sibling files for sidecar discovery.
-    let siblings: Vec<String> = std::fs::read_dir(&args.source_folder)
-        .map_err(AppError::from)?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-        .filter_map(|e| e.file_name().into_string().ok())
-        .collect();
+    // Decide whether this is a "single video" link (movie or one-file
+    // series) or a "whole folder" link (series with multiple files /
+    // season subfolders). The latter is detected by the absence of any
+    // immediate video file matching `args.video_filename` — typical when
+    // the walker surfaced the parent series folder.
+    let video_path = args.source_folder.join(&args.video_filename);
+    let is_folder_link = !args.video_filename.is_empty() && !video_path.is_file()
+        || args.video_filename.is_empty();
 
-    let plan = plan_link(&LinkPlanInput {
-        hd_root: &hd_root,
-        kind_root_label: &kind_root_label,
-        genre_folder: genre_folder_name.as_deref(),
-        current_folder: &args.source_folder,
-        video_filename: &args.video_filename,
-        siblings: &siblings,
-        tmdb_id: args.tmdb_id,
-        title: &title,
-    });
+    let target_folder = if is_folder_link {
+        // Compute target without using plan_link: we just need the folder
+        // path under the kind root (no genre subfolder for series).
+        use crate::organizer::naming::{folder_name, sanitize_segment};
+        let kind_dir = hd_root.join(sanitize_segment(&kind_root_label));
+        let parent = match genre_folder_name.as_deref() {
+            Some(g) => kind_dir.join(sanitize_segment(g)),
+            None => kind_dir,
+        };
+        let target = parent.join(folder_name(&title, args.tmdb_id));
+        if target.exists() {
+            return Err(AppError::Conflict(format!(
+                "target folder already exists: {}",
+                target.display()
+            )));
+        }
+        std::fs::create_dir_all(&parent).map_err(AppError::from)?;
+        std::fs::rename(&args.source_folder, &target).map_err(AppError::from)?;
+        target
+    } else {
+        // Sibling files for sidecar discovery.
+        let siblings: Vec<String> = std::fs::read_dir(&args.source_folder)
+            .map_err(AppError::from)?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
 
-    execute_link(&plan)?;
+        let plan = plan_link(&LinkPlanInput {
+            hd_root: &hd_root,
+            kind_root_label: &kind_root_label,
+            genre_folder: genre_folder_name.as_deref(),
+            current_folder: &args.source_folder,
+            video_filename: &args.video_filename,
+            siblings: &siblings,
+            tmdb_id: args.tmdb_id,
+            title: &title,
+        });
+        execute_link(&plan)?;
+        plan.target_folder
+    };
 
     // Optionally download the poster (best-effort).
     let (poster_local, poster_remote) = if let Some(pp) = poster_path.as_deref() {
@@ -147,11 +179,10 @@ pub async fn link_media(state: State<'_, AppState>, args: LinkArgs) -> AppResult
         (None, None)
     };
 
-    let folder_path_rel = plan
-        .target_folder
+    let folder_path_rel = target_folder
         .strip_prefix(&hd_root)
         .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| plan.target_folder.to_string_lossy().to_string());
+        .unwrap_or_else(|_| target_folder.to_string_lossy().to_string());
 
     let media_id = insert_media(
         &pool,
@@ -178,7 +209,7 @@ pub async fn link_media(state: State<'_, AppState>, args: LinkArgs) -> AppResult
 
     Ok(LinkResult {
         media_id,
-        folder_path: plan.target_folder,
+        folder_path: target_folder,
     })
 }
 
@@ -298,4 +329,138 @@ fn rename_inside_folder(folder: &Path, new_stem: &str) -> AppResult<()> {
         }
     }
     Ok(())
+}
+
+/// List the genres a media row has, in their stored order. The first
+/// entry is the primary (`is_primary = 1`); the rest are returned in
+/// `genres.id` order. Useful for the right-panel reorder UI.
+#[tauri::command]
+pub async fn list_media_genres(
+    state: State<'_, AppState>,
+    media_id: i64,
+) -> AppResult<Vec<GenreRow>> {
+    let pool = {
+        let s = state.read().await;
+        s.db.clone()
+            .ok_or_else(|| AppError::Other("DB not initialized".into()))?
+    };
+    sqlx::query_as::<_, GenreRow>(
+        "SELECT g.id, g.media_type, g.canonical_name, g.translated_name \
+         FROM genres g \
+         JOIN media_genres mg ON mg.genre_id = g.id AND mg.media_type = g.media_type \
+         WHERE mg.media_id = ? \
+         ORDER BY mg.is_primary DESC, g.id ASC",
+    )
+    .bind(media_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| AppError::Other(format!("list_media_genres: {e}")))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReorderGenresArgs {
+    pub media_id: i64,
+    /// Ordered list of genre ids. Index 0 = primary.
+    pub genre_ids: Vec<i64>,
+}
+
+/// Replace a media row's genres with `genre_ids` in the given order.
+/// `genre_ids[0]` becomes the new primary; the on-disk genre folder for
+/// movies is moved if the primary changed.
+#[tauri::command]
+pub async fn reorder_media_genres(
+    state: State<'_, AppState>,
+    args: ReorderGenresArgs,
+) -> AppResult<MediaRow> {
+    if args.genre_ids.is_empty() {
+        return Err(AppError::Other("genre_ids cannot be empty".into()));
+    }
+
+    let (pool, hd_root) = {
+        let s = state.read().await;
+        let pool = s
+            .db
+            .clone()
+            .ok_or_else(|| AppError::Other("DB not initialized".into()))?;
+        let hd = s
+            .hd_root
+            .clone()
+            .ok_or_else(|| AppError::Other("HD not set".into()))?;
+        (pool, hd)
+    };
+
+    let row = find_by_id(&pool, args.media_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("media {}", args.media_id)))?;
+    let media_type = MediaType::parse(&row.media_type)
+        .ok_or_else(|| AppError::Other(format!("bad media_type {}", row.media_type)))?;
+
+    // Validate that every requested genre id exists in the genres table for this media_type.
+    let known: std::collections::HashSet<i64> = list_genres(&pool, media_type)
+        .await?
+        .into_iter()
+        .map(|g| g.id)
+        .collect();
+    for gid in &args.genre_ids {
+        if !known.contains(gid) {
+            return Err(AppError::NotFound(format!(
+                "genre {gid} not known for {:?}",
+                media_type
+            )));
+        }
+    }
+
+    let old_primary = primary_genre_for(&pool, args.media_id).await?;
+
+    // Replace media_genres rows with the new ordering.
+    let pairs: Vec<(i64, bool)> = args
+        .genre_ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| (*id, i == 0))
+        .collect();
+    set_media_genres(&pool, args.media_id, media_type, &pairs).await?;
+
+    // For movies, if the primary genre changed, the on-disk folder must
+    // move from the old genre folder into the new one.
+    if matches!(media_type, MediaType::Movie) {
+        let new_primary = primary_genre_for(&pool, args.media_id).await?;
+        let old_name = old_primary.as_ref().map(|g| g.display_name().to_string());
+        let new_name = new_primary.as_ref().map(|g| g.display_name().to_string());
+        if old_name != new_name {
+            let movies_label =
+                get_setting_or(&pool, KEY_MOVIES_LABEL, "Movies").await?;
+            let movies_root = hd_root.join(sanitize_segment(&movies_label));
+            let folder_basename = std::path::Path::new(&row.folder_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            let from = hd_root.join(&row.folder_path);
+            let to = match &new_name {
+                Some(n) => movies_root.join(sanitize_segment(n)).join(folder_basename),
+                None => movies_root.join(folder_basename),
+            };
+            if from.exists() && from != to {
+                if let Some(parent) = to.parent() {
+                    std::fs::create_dir_all(parent).map_err(AppError::from)?;
+                }
+                if to.exists() {
+                    return Err(AppError::Conflict(format!(
+                        "destination already exists: {}",
+                        to.display()
+                    )));
+                }
+                std::fs::rename(&from, &to).map_err(AppError::from)?;
+                let new_rel = to
+                    .strip_prefix(&hd_root)
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|_| to.to_string_lossy().to_string());
+                update_folder_path(&pool, args.media_id, &new_rel).await?;
+            }
+        }
+    }
+    let _ = KEY_SERIES_LABEL; // referenced via import
+    let _ = merge_genre_folders;
+
+    Ok(find_by_id(&pool, args.media_id).await?.unwrap())
 }

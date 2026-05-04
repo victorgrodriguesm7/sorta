@@ -12,13 +12,14 @@ use crate::db::settings::{
 use crate::error::{AppError, AppResult};
 use crate::organizer::execute::merge_genre_folders;
 use crate::organizer::naming::sanitize_segment;
-use crate::scanner::walker::{scan, ScanReport};
+use crate::scanner::walker::{scan, ScanReport, UncataloguedKind};
 use crate::state::AppState;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UncataloguedItem {
     pub folder: PathBuf,
     pub video_filename: String,
+    pub kind: UncataloguedKind,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -44,6 +45,7 @@ pub async fn scan_now(state: State<'_, AppState>) -> AppResult<ScanResultDto> {
             .map(|u| UncataloguedItem {
                 folder: u.folder,
                 video_filename: u.video_filename,
+                kind: u.kind,
             })
             .collect(),
         catalogued_count: report.catalogued.len(),

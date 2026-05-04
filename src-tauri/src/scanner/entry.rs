@@ -2,6 +2,8 @@
 
 use crate::organizer::naming::{is_catalogued_folder, parse_tmdb_id};
 use crate::scanner::classify::is_video_file;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::path::{Path, PathBuf};
 
 /// What the scanner found inside a single folder.
@@ -59,6 +61,18 @@ pub fn is_poster_cache_dir(path: &Path) -> bool {
         .and_then(|n| n.to_str())
         .map(|n| n.eq_ignore_ascii_case("poster"))
         .unwrap_or(false)
+}
+
+static SEASON_LONG_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)^\s*(season|temporada|série|serie|saison|staffel)\s*\d+\s*$").unwrap()
+});
+static SEASON_SHORT_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^\s*s\d{1,3}\s*$").unwrap());
+
+/// Returns true if `name` looks like a TV season folder, e.g.:
+///   "Season 1", "Season 01", "Temporada 1", "Saison 2", "Staffel 3", "S01".
+pub fn is_season_folder_name(name: &str) -> bool {
+    SEASON_LONG_RE.is_match(name) || SEASON_SHORT_RE.is_match(name)
 }
 
 /// True for folders that should always be skipped: OS-level junk that can't
@@ -157,6 +171,33 @@ mod tests {
         assert!(is_system_dir(Path::new("/hd/.Spotlight-V100")));
         assert!(is_system_dir(Path::new("/hd/.fseventsd")));
         assert!(is_system_dir(Path::new("/hd/lost+found")));
+    }
+
+    #[test]
+    fn detects_season_folder_names() {
+        for name in [
+            "Season 1",
+            "Season 01",
+            "season 1",
+            "Temporada 1",
+            "Saison 2",
+            "Staffel 3",
+            "S01",
+            "s1",
+            "S100",
+        ] {
+            assert!(is_season_folder_name(name), "{name} should be season-like");
+        }
+    }
+
+    #[test]
+    fn rejects_non_season_names() {
+        for name in ["Inception", "9-1-1", "S01E01", "Movies", "Action", "Season"] {
+            assert!(
+                !is_season_folder_name(name),
+                "{name} should NOT be season-like"
+            );
+        }
     }
 
     #[test]
