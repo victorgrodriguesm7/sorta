@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLibrary } from "@/stores/library";
-import { api } from "@/lib/tauri";
+import { api, type GenreRow } from "@/lib/tauri";
 import SearchDialog from "./SearchDialog";
+import GenreEditor from "./GenreEditor";
 
 export default function RightPanel() {
   const { t } = useTranslation();
@@ -11,11 +12,23 @@ export default function RightPanel() {
   const [renaming, setRenaming] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [genres, setGenres] = useState<GenreRow[]>([]);
+  const [editingGenres, setEditingGenres] = useState(false);
 
   useEffect(() => {
     setRenaming(false);
+    setEditingGenres(false);
     setError(null);
-    if (selection?.kind === "media") setNewTitle(selection.row.title);
+    if (selection?.kind === "media") {
+      setNewTitle(selection.row.title);
+      const id = selection.row.id;
+      void api
+        .listMediaGenres(id)
+        .then(setGenres)
+        .catch((e) => setError((e as Error).message));
+    } else {
+      setGenres([]);
+    }
   }, [selection]);
 
   if (!selection) {
@@ -132,6 +145,56 @@ export default function RightPanel() {
             {row.folder_path}
           </dd>
         </dl>
+
+        <div>
+          {editingGenres ? (
+            <GenreEditor
+              mediaId={row.id}
+              initialGenres={genres}
+              onClose={() => setEditingGenres(false)}
+              onSaved={async () => {
+                setEditingGenres(false);
+                await refresh();
+                const next = await api.listMediaGenres(row.id);
+                setGenres(next);
+              }}
+            />
+          ) : (
+            <div className="flex items-start gap-2">
+              <div className="flex-1">
+                <div className="text-xs uppercase tracking-wide text-neutral-500">
+                  {t("media.genres", "Genres")}
+                </div>
+                {genres.length === 0 ? (
+                  <div className="text-sm text-neutral-500">—</div>
+                ) : (
+                  <ul className="flex flex-wrap gap-1">
+                    {genres.map((g, i) => (
+                      <li
+                        key={`${g.media_type}-${g.id}`}
+                        className={`rounded px-2 py-0.5 text-xs ${
+                          i === 0
+                            ? "bg-accent text-white"
+                            : "bg-neutral-800 text-neutral-300"
+                        }`}
+                        title={i === 0 ? t("media.primary", "Primary") : undefined}
+                      >
+                        {g.translated_name ?? g.canonical_name}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <button
+                onClick={() => setEditingGenres(true)}
+                aria-label={t("actions.edit_genres", "Edit genres")}
+                className="rounded p-1 text-neutral-400 hover:bg-neutral-800 hover:text-white"
+              >
+                ✎
+              </button>
+            </div>
+          )}
+        </div>
 
         {error && (
           <div className="rounded bg-red-900/40 px-3 py-2 text-sm text-red-200">

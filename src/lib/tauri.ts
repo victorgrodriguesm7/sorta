@@ -54,9 +54,12 @@ export interface GenreRow {
   translated_name: string | null;
 }
 
+export type UncataloguedKind = "movie" | "series";
+
 export interface UncataloguedItem {
   folder: string;
   video_filename: string;
+  kind: UncataloguedKind;
 }
 
 export interface ScanResult {
@@ -110,5 +113,11 @@ export const api = {
   renameMedia: (mediaId: number, newTitle: string) =>
     invoke<MediaRow>("rename_media", {
       args: { media_id: mediaId, new_title: newTitle },
+    }),
+  listMediaGenres: (mediaId: number) =>
+    invoke<GenreRow[]>("list_media_genres", { mediaId }),
+  reorderMediaGenres: (mediaId: number, genreIds: number[]) =>
+    invoke<MediaRow>("reorder_media_genres", {
+      args: { media_id: mediaId, genre_ids: genreIds },
     }),
 };

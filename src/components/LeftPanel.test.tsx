@@ -17,8 +17,8 @@ beforeEach(() => {
       initialized: true,
     },
     uncatalogued: [
-      { folder: "/x", video_filename: "a.mkv" },
-      { folder: "/y", video_filename: "b.mkv" },
+      { folder: "/x", video_filename: "a.mkv", kind: "movie" },
+      { folder: "/y", video_filename: "b.mkv", kind: "movie" },
     ],
     movieGenres: [
       {
