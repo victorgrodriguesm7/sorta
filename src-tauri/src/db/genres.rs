@@ -212,6 +212,83 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn set_media_genres_fails_when_secondary_genre_not_upserted() {
+        // Regression: previously link_media only upserted the PRIMARY movie
+        // genre, then called set_media_genres with both primary + secondary
+        // ids. The secondary FK violated `(genre_id, media_type)
+        // REFERENCES genres(id, media_type)`, the whole transaction rolled
+        // back, and the movie ended up invisible in every genre bucket.
+        let (_tmp, pool) = fresh().await;
+        upsert_genre(&pool, 28, MediaType::Movie, "Action").await.unwrap();
+        // NOTE: 12 (Adventure) intentionally NOT upserted.
+        let media_id = insert_media(
+            &pool,
+            &NewMedia {
+                tmdb_id: 1,
+                media_type: MediaType::Movie,
+                title: "T",
+                original_title: None,
+                runtime_minutes: None,
+                poster_path: None,
+                poster_url: None,
+                folder_path: "Movies/Action/T [tmdb-1]",
+            },
+        )
+        .await
+        .unwrap();
+
+        let res =
+            set_media_genres(&pool, media_id, MediaType::Movie, &[(28, true), (12, false)]).await;
+        assert!(res.is_err(), "FK on missing genre should fail");
+
+        // And, crucially, the failed transaction should leave NO rows
+        // (the bug symptom: the movie has no genre links at all).
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM media_genres WHERE media_id = ?")
+                .bind(media_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(count.0, 0);
+    }
+
+    #[tokio::test]
+    async fn set_media_genres_succeeds_when_all_genres_upserted_first() {
+        // Demonstrates the fix: upsert ALL referenced genres before calling
+        // set_media_genres, even the secondary ones.
+        let (_tmp, pool) = fresh().await;
+        upsert_genre(&pool, 28, MediaType::Movie, "Action").await.unwrap();
+        upsert_genre(&pool, 12, MediaType::Movie, "Adventure").await.unwrap();
+        let media_id = insert_media(
+            &pool,
+            &NewMedia {
+                tmdb_id: 1,
+                media_type: MediaType::Movie,
+                title: "T",
+                original_title: None,
+                runtime_minutes: None,
+                poster_path: None,
+                poster_url: None,
+                folder_path: "Movies/Action/T [tmdb-1]",
+            },
+        )
+        .await
+        .unwrap();
+        set_media_genres(&pool, media_id, MediaType::Movie, &[(28, true), (12, false)])
+            .await
+            .unwrap();
+        let primary = primary_genre_for(&pool, media_id).await.unwrap().unwrap();
+        assert_eq!(primary.id, 28);
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM media_genres WHERE media_id = ?")
+                .bind(media_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(count.0, 2);
+    }
+
+    #[tokio::test]
     async fn set_media_genres_replaces_and_marks_primary() {
         let (_tmp, pool) = fresh().await;
         upsert_genre(&pool, 28, MediaType::Movie, "Action").await.unwrap();

@@ -93,26 +93,25 @@ pub async fn link_media(state: State<'_, AppState>, args: LinkArgs) -> AppResult
         }
     };
 
+    // Persist EVERY genre into the `genres` table first so the
+    // media_genres FK insert later doesn't violate `(genre_id, media_type)
+    // REFERENCES genres(id, media_type)`. Previously only the primary
+    // movie genre was upserted, which made the secondary FK fail and
+    // rolled the entire `set_media_genres` transaction back — leaving the
+    // movie with zero genre rows and invisible in the UI.
+    for g in &genres {
+        upsert_genre(&pool, g.id, media_type, &g.name).await?;
+    }
+
     // Determine kind-root + genre folder.
     let (kind_root_label, genre_folder_name) = match media_type {
         MediaType::Movie => {
             let label = get_setting_or(&pool, KEY_MOVIES_LABEL, "Movies").await?;
-            let primary = genres.first().cloned();
-            let genre_folder = match &primary {
-                Some(g) => {
-                    upsert_genre(&pool, g.id, MediaType::Movie, &g.name).await?;
-                    Some(g.name.clone())
-                }
-                None => None,
-            };
+            let genre_folder = genres.first().map(|g| g.name.clone());
             (label, genre_folder)
         }
         MediaType::Tv => {
             let label = get_setting_or(&pool, KEY_SERIES_LABEL, "Series").await?;
-            // Persist genres for filtering even though TV isn't binned by genre.
-            for g in &genres {
-                upsert_genre(&pool, g.id, MediaType::Tv, &g.name).await?;
-            }
             (label, None)
         }
     };
