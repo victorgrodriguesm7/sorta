@@ -51,6 +51,8 @@ pub fn run() {
             commands::config_cmds::set_ui_language,
             commands::library::scan_now,
             commands::library::list_movies_by_genre,
+            commands::library::list_movies_by_genres,
+            commands::library::get_poster_url,
             commands::library::list_series,
             commands::library::list_movie_genres,
             commands::library::update_genre_translation,

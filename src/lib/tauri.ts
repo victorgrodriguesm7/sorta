@@ -88,6 +88,10 @@ export const api = {
   scanNow: () => invoke<ScanResult>("scan_now"),
   listMoviesByGenre: (genreId: number) =>
     invoke<MediaRow[]>("list_movies_by_genre", { genreId }),
+  listMoviesByGenres: (genreIds: number[]) =>
+    invoke<MediaRow[]>("list_movies_by_genres", { genreIds }),
+  getPosterUrl: (mediaId: number) =>
+    invoke<string | null>("get_poster_url", { mediaId }),
   listSeries: () => invoke<MediaRow[]>("list_series"),
   listMovieGenres: () => invoke<GenreRow[]>("list_movie_genres"),
   updateGenreTranslation: (genreId: number, translated: string | null) =>

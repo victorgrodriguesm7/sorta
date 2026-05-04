@@ -13,7 +13,7 @@ export type Selection =
 
 export type LeftSelection =
   | { kind: "uncatalogued" }
-  | { kind: "movieGenre"; genre: GenreRow }
+  | { kind: "movieGenre"; group: GenreRow[] }
   | { kind: "series" };
 
 interface LibraryState {
@@ -80,7 +80,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     set({ leftSelection: sel, selection: null });
     try {
       if (sel.kind === "movieGenre") {
-        const list = await api.listMoviesByGenre(sel.genre.id);
+        const list = await api.listMoviesByGenres(sel.group.map((g) => g.id));
         set({ currentList: list });
       } else if (sel.kind === "series") {
         set({ currentList: get().series });

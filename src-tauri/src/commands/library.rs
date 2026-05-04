@@ -58,21 +58,48 @@ pub async fn list_movies_by_genre(
     state: State<'_, AppState>,
     genre_id: i64,
 ) -> AppResult<Vec<MediaRow>> {
+    list_movies_by_genres(state, vec![genre_id]).await
+}
+
+/// List every movie whose primary genre is *any* of `genre_ids`. Used by
+/// the LeftPanel when several genres are visually merged under the same
+/// translated display name (e.g. Action + Adventure both → "Aventura"):
+/// clicking the merged bucket must surface movies whose primary is
+/// either of the underlying TMDB ids.
+#[tauri::command]
+pub async fn list_movies_by_genres(
+    state: State<'_, AppState>,
+    genre_ids: Vec<i64>,
+) -> AppResult<Vec<MediaRow>> {
+    if genre_ids.is_empty() {
+        return Ok(vec![]);
+    }
     let pool = {
         let s = state.read().await;
         s.db.clone()
             .ok_or_else(|| AppError::Other("DB not initialized".into()))?
     };
-    sqlx::query_as::<_, MediaRow>(
-        "SELECT m.* FROM media m \
+    // Build "?, ?, ?" placeholders dynamically — sqlx doesn't have a
+    // built-in IN-list binder for sqlite.
+    let placeholders = std::iter::repeat("?")
+        .take(genre_ids.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT DISTINCT m.* FROM media m \
          JOIN media_genres mg ON mg.media_id = m.id \
-         WHERE mg.genre_id = ? AND m.media_type = 'movie' AND mg.is_primary = 1 \
-         ORDER BY m.title COLLATE NOCASE",
-    )
-    .bind(genre_id)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| AppError::Other(format!("list_movies_by_genre: {e}")))
+         WHERE mg.genre_id IN ({placeholders}) \
+           AND m.media_type = 'movie' \
+           AND mg.is_primary = 1 \
+         ORDER BY m.title COLLATE NOCASE"
+    );
+    let mut q = sqlx::query_as::<_, MediaRow>(&sql);
+    for id in &genre_ids {
+        q = q.bind(*id);
+    }
+    q.fetch_all(&pool)
+        .await
+        .map_err(|e| AppError::Other(format!("list_movies_by_genres: {e}")))
 }
 
 #[tauri::command]
@@ -144,6 +171,68 @@ pub async fn update_genre_translation(
         merge_genre_folders(&from, &to)?;
     }
     Ok(())
+}
+
+/// Return the poster for a media row as a base64 `data:` URL ready to be
+/// dropped into an `<img src>`. Tries the locally cached poster first
+/// (`<HD>/poster/<tmdb_id>.jpg`); if it's missing or unreadable, falls
+/// back to the TMDB CDN URL (returned verbatim — the webview can fetch
+/// it directly from the public internet).
+///
+/// Returning bytes inline avoids the Tauri 2 asset-protocol scope
+/// problem: the user's HD root is chosen at runtime, so we can't bake a
+/// static scope into tauri.conf.json.
+#[tauri::command]
+pub async fn get_poster_url(
+    state: State<'_, AppState>,
+    media_id: i64,
+) -> AppResult<Option<String>> {
+    use base64::engine::general_purpose::STANDARD as B64;
+    use base64::Engine as _;
+
+    let (pool, hd_root) = {
+        let s = state.read().await;
+        let pool = s
+            .db
+            .clone()
+            .ok_or_else(|| AppError::Other("DB not initialized".into()))?;
+        let hd = s
+            .hd_root
+            .clone()
+            .ok_or_else(|| AppError::Other("HD not set".into()))?;
+        (pool, hd)
+    };
+
+    let row = crate::db::media::find_by_id(&pool, media_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("media {media_id}")))?;
+
+    if let Some(rel) = row.poster_path.as_deref() {
+        let abs = hd_root.join(rel);
+        match std::fs::read(&abs) {
+            Ok(bytes) => {
+                let mime = match abs
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|s| s.to_ascii_lowercase())
+                    .as_deref()
+                {
+                    Some("png") => "image/png",
+                    Some("webp") => "image/webp",
+                    _ => "image/jpeg",
+                };
+                let encoded = B64.encode(&bytes);
+                return Ok(Some(format!("data:{mime};base64,{encoded}")));
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "poster: cannot read {}: {e}; falling back to TMDB URL",
+                    abs.display()
+                );
+            }
+        }
+    }
+    Ok(row.poster_url)
 }
 
 #[tauri::command]

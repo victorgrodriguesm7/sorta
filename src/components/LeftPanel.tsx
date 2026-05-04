@@ -5,7 +5,9 @@ import type { GenreRow } from "@/lib/tauri";
 function isSameSelection(a: LeftSelection, b: LeftSelection): boolean {
   if (a.kind !== b.kind) return false;
   if (a.kind === "movieGenre" && b.kind === "movieGenre") {
-    return a.genre.id === b.genre.id;
+    if (a.group.length !== b.group.length) return false;
+    const aIds = new Set(a.group.map((g) => g.id));
+    return b.group.every((g) => aIds.has(g.id));
   }
   return true;
 }
@@ -34,7 +36,9 @@ export default function LeftPanel() {
     return (
       <button
         key={`${sel.kind}-${
-          sel.kind === "movieGenre" ? sel.genre.id : sel.kind
+          sel.kind === "movieGenre"
+            ? sel.group.map((g) => g.id).join(",")
+            : sel.kind
         }`}
         onClick={() => selectLeft(sel)}
         className={`flex w-full items-center justify-between rounded px-3 py-1.5 text-left text-sm transition ${
@@ -70,7 +74,7 @@ export default function LeftPanel() {
         )}
         {merged.map((m) =>
           item(
-            { kind: "movieGenre", genre: m.genres[0] },
+            { kind: "movieGenre", group: m.genres },
             m.displayName,
           ),
         )}
