@@ -29,7 +29,13 @@
     "tmdb_id": "TMDB ID",
     "runtime": "Runtime",
     "primary_genre": "Primary genre",
-    "secondary_genres": "Secondary genres"
+    "secondary_genres": "Secondary genres",
+    "no_selection": "Nothing selected",
+    "none": "None",
+    "empty": "No items in this category yet."
+  },
+  "first_run": {
+    "intro": "Pick the hard drive that contains your movies and series."
   },
   "errors": {
     "link_conflict": "A folder with that name already exists.",
