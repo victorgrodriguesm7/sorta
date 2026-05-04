@@ -10,6 +10,55 @@ interface Props {
 
 const POSTER_BASE = "https://image.tmdb.org/t/p/w154";
 
+const epKey = (e: UncataloguedItem) => `${e.folder}|${e.video_filename}`;
+
+/** Move every item whose key is in `selected` one slot up. Items whose
+ *  predecessor is also selected stay put — so contiguous blocks shift
+ *  up as one unit and non-contiguous selections each shift by one. */
+function moveSelectionUp<T>(list: T[], isSelected: (t: T) => boolean): T[] {
+  const out = list.slice();
+  for (let i = 1; i < out.length; i++) {
+    if (isSelected(out[i]) && !isSelected(out[i - 1])) {
+      [out[i - 1], out[i]] = [out[i], out[i - 1]];
+    }
+  }
+  return out;
+}
+
+function moveSelectionDown<T>(list: T[], isSelected: (t: T) => boolean): T[] {
+  const out = list.slice();
+  for (let i = out.length - 2; i >= 0; i--) {
+    if (isSelected(out[i]) && !isSelected(out[i + 1])) {
+      [out[i + 1], out[i]] = [out[i], out[i + 1]];
+    }
+  }
+  return out;
+}
+
+/** Drop the items with keys in `dragKeys` immediately before the item at
+ *  `targetIndex` in the original list. Preserves the relative order of
+ *  the dragged group. If the dragged group includes the target, no-op. */
+function reorderByDrop(
+  list: UncataloguedItem[],
+  dragKeys: Set<string>,
+  targetIndex: number,
+): UncataloguedItem[] {
+  const moving = list.filter((e) => dragKeys.has(epKey(e)));
+  if (moving.length === 0) return list;
+  const remaining = list.filter((e) => !dragKeys.has(epKey(e)));
+  // Translate targetIndex from the full list into the remaining list:
+  // count how many surviving items lie at indices < targetIndex.
+  let insertAt = 0;
+  for (let i = 0; i < targetIndex && i < list.length; i++) {
+    if (!dragKeys.has(epKey(list[i]))) insertAt++;
+  }
+  return [
+    ...remaining.slice(0, insertAt),
+    ...moving,
+    ...remaining.slice(insertAt),
+  ];
+}
+
 /** Multi-episode bulk linker. Pick a TMDB show + season number; the
  *  backend renames each file to S{XX}E{YY}.ext and drops them under
  *  <Series Label>/<Show Title> [tmdb-id]/<Season Label> N/. */
@@ -32,13 +81,31 @@ export default function CatalogAsSeriesDialog({
   const [startEpisode, setStartEpisode] = useState<number>(1);
   // Episodes in apply order. Initial order = walker order.
   const [order, setOrder] = useState<UncataloguedItem[]>(episodes);
+  // Per-row checkboxes for multi-select reorder (separate from the
+  // outer LeftPanel selection — these only live for this dialog's
+  // lifetime).
+  const [pickedRows, setPickedRows] = useState<Set<string>>(new Set());
+  // Drag state — which keys are currently being dragged.
+  const [dragKeys, setDragKeys] = useState<Set<string>>(new Set());
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setOrder(episodes);
+    setPickedRows(new Set());
   }, [episodes]);
+
+  const togglePicked = (key: string) => {
+    setPickedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  const isPicked = (e: UncataloguedItem) => pickedRows.has(epKey(e));
 
   const runSearch = async (q: string) => {
     if (!q.trim()) return;
@@ -60,11 +127,64 @@ export default function CatalogAsSeriesDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Single-row swap — used as a fallback when nothing is checked.
   const swap = (i: number, j: number) => {
     if (j < 0 || j >= order.length) return;
     const next = order.slice();
     [next[i], next[j]] = [next[j], next[i]];
     setOrder(next);
+  };
+
+  const moveUp = (clickedIndex: number) => {
+    if (pickedRows.size === 0) {
+      swap(clickedIndex, clickedIndex - 1);
+      return;
+    }
+    setOrder((cur) => moveSelectionUp(cur, isPicked));
+  };
+
+  const moveDown = (clickedIndex: number) => {
+    if (pickedRows.size === 0) {
+      swap(clickedIndex, clickedIndex + 1);
+      return;
+    }
+    setOrder((cur) => moveSelectionDown(cur, isPicked));
+  };
+
+  // Drag handlers — if the user starts dragging a checked row, the
+  // entire selection moves; otherwise just that single row.
+  const onRowDragStart = (e: React.DragEvent, key: string) => {
+    const movingSet = pickedRows.has(key)
+      ? new Set(pickedRows)
+      : new Set([key]);
+    setDragKeys(movingSet);
+    e.dataTransfer.effectAllowed = "move";
+    // Required by Firefox to actually start the drag.
+    e.dataTransfer.setData("text/plain", key);
+  };
+  const onRowDragOver = (e: React.DragEvent, index: number) => {
+    if (dragKeys.size === 0) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverIndex(index);
+  };
+  const onRowDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (dragKeys.size === 0) return;
+    setOrder((cur) => reorderByDrop(cur, dragKeys, targetIndex));
+    setDragKeys(new Set());
+    setDragOverIndex(null);
+  };
+  const onRowDragEnd = () => {
+    setDragKeys(new Set());
+    setDragOverIndex(null);
+  };
+  const onListDropAtEnd = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (dragKeys.size === 0) return;
+    setOrder((cur) => reorderByDrop(cur, dragKeys, cur.length));
+    setDragKeys(new Set());
+    setDragOverIndex(null);
   };
 
   const confirm = async () => {
@@ -196,36 +316,89 @@ export default function CatalogAsSeriesDialog({
                 />
               </label>
             </div>
-            <div className="flex-1 overflow-y-auto p-2">
+            <div
+              className="flex-1 overflow-y-auto p-2"
+              onDragOver={(e) => {
+                if (dragKeys.size > 0) e.preventDefault();
+              }}
+              onDrop={onListDropAtEnd}
+            >
+              {pickedRows.size > 0 && (
+                <div className="mb-2 flex items-center justify-between rounded bg-neutral-800/60 px-2 py-1 text-xs text-neutral-300">
+                  <span>
+                    {t("series.row_selected", "{{count}} selected", {
+                      count: pickedRows.size,
+                    })}
+                  </span>
+                  <button
+                    onClick={() => setPickedRows(new Set())}
+                    className="rounded px-2 py-0.5 text-neutral-400 hover:text-white"
+                  >
+                    {t("actions.clear", "Clear")}
+                  </button>
+                </div>
+              )}
               <ul className="space-y-1">
                 {order.map((ep, i) => {
                   const epNo = startEpisode + i;
+                  const key = epKey(ep);
+                  const checked = pickedRows.has(key);
+                  const beingDragged = dragKeys.has(key);
+                  const showDropIndicator =
+                    dragOverIndex === i && !dragKeys.has(key);
                   return (
                     <li
-                      key={`${ep.folder}|${ep.video_filename}`}
-                      className="flex items-center gap-2 rounded bg-neutral-800/50 px-2 py-1 text-sm"
+                      key={key}
+                      draggable
+                      onDragStart={(e) => onRowDragStart(e, key)}
+                      onDragOver={(e) => onRowDragOver(e, i)}
+                      onDrop={(e) => onRowDrop(e, i)}
+                      onDragEnd={onRowDragEnd}
+                      onDragLeave={() =>
+                        setDragOverIndex((cur) => (cur === i ? null : cur))
+                      }
+                      className={`flex items-center gap-2 rounded px-2 py-1 text-sm transition ${
+                        checked
+                          ? "bg-accent/30 text-white"
+                          : "bg-neutral-800/50 text-neutral-200"
+                      } ${beingDragged ? "opacity-40" : ""} ${
+                        showDropIndicator ? "border-t-2 border-accent" : ""
+                      }`}
                     >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => togglePicked(key)}
+                        className="h-4 w-4 shrink-0 cursor-pointer accent-accent"
+                        aria-label={t("actions.select", "Select")}
+                      />
+                      <span
+                        className="cursor-grab select-none text-neutral-500 hover:text-neutral-300 active:cursor-grabbing"
+                        title={t("actions.drag", "Drag to reorder")}
+                      >
+                        ⋮⋮
+                      </span>
                       <span className="w-16 shrink-0 font-mono text-xs text-accent">
                         S{String(season).padStart(2, "0")}E
                         {String(epNo).padStart(2, "0")}
                       </span>
                       <span
-                        className="flex-1 truncate text-neutral-200"
+                        className="flex-1 truncate"
                         title={`${ep.folder}/${ep.video_filename}`}
                       >
                         {ep.video_filename}
                       </span>
                       <button
-                        onClick={() => swap(i, i - 1)}
-                        disabled={i === 0}
+                        onClick={() => moveUp(i)}
+                        disabled={i === 0 && pickedRows.size === 0}
                         aria-label={t("actions.move_up", "Move up")}
                         className="rounded px-1 text-neutral-400 hover:text-white disabled:opacity-30"
                       >
                         ▲
                       </button>
                       <button
-                        onClick={() => swap(i, i + 1)}
-                        disabled={i === order.length - 1}
+                        onClick={() => moveDown(i)}
+                        disabled={i === order.length - 1 && pickedRows.size === 0}
                         aria-label={t("actions.move_down", "Move down")}
                         className="rounded px-1 text-neutral-400 hover:text-white disabled:opacity-30"
                       >
