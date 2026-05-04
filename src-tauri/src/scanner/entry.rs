@@ -61,6 +61,31 @@ pub fn is_poster_cache_dir(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// True for folders that should always be skipped: OS-level junk that can't
+/// hold movies and often isn't even readable (Windows recycle bin, NTFS
+/// volume metadata, macOS Trash, etc.).
+pub fn is_system_dir(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    // Anything starting with `$` is a Windows hidden/system marker
+    // ($RECYCLE.BIN, $Recycle.Bin, $WinREAgent, ...).
+    if name.starts_with('$') {
+        return true;
+    }
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "system volume information"
+            | ".trash"
+            | ".trashes"
+            | ".spotlight-v100"
+            | ".fseventsd"
+            | "lost+found"
+            | "found.000"
+            | "node_modules"
+    )
+}
+
 /// Tiny convenience used by the walker.
 pub fn relative_to(root: &Path, full: &Path) -> PathBuf {
     full.strip_prefix(root)
@@ -114,5 +139,30 @@ mod tests {
         assert!(is_poster_cache_dir(Path::new("/hd/poster")));
         assert!(is_poster_cache_dir(Path::new("/hd/Poster")));
         assert!(!is_poster_cache_dir(Path::new("/hd/Movies")));
+    }
+
+    #[test]
+    fn detects_windows_system_dirs() {
+        assert!(is_system_dir(Path::new("M:/$RECYCLE.BIN")));
+        assert!(is_system_dir(Path::new("M:/$Recycle.Bin")));
+        assert!(is_system_dir(Path::new("M:/$WinREAgent")));
+        assert!(is_system_dir(Path::new("M:/System Volume Information")));
+        assert!(is_system_dir(Path::new("M:/system volume information")));
+    }
+
+    #[test]
+    fn detects_unix_system_dirs() {
+        assert!(is_system_dir(Path::new("/hd/.Trash")));
+        assert!(is_system_dir(Path::new("/hd/.Trashes")));
+        assert!(is_system_dir(Path::new("/hd/.Spotlight-V100")));
+        assert!(is_system_dir(Path::new("/hd/.fseventsd")));
+        assert!(is_system_dir(Path::new("/hd/lost+found")));
+    }
+
+    #[test]
+    fn allows_normal_dirs() {
+        assert!(!is_system_dir(Path::new("M:/Terror")));
+        assert!(!is_system_dir(Path::new("M:/Filmes")));
+        assert!(!is_system_dir(Path::new("/hd/Movies")));
     }
 }

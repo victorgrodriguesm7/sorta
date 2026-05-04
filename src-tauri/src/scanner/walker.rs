@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{AppError, AppResult};
 use crate::organizer::naming::parse_tmdb_id;
-use crate::scanner::entry::{classify_folder, is_poster_cache_dir, FolderClassification};
+use crate::scanner::entry::{classify_folder, is_poster_cache_dir, is_system_dir, FolderClassification};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CataloguedHit {
@@ -82,16 +82,38 @@ fn first_video_recursive(dir: &Path) -> Option<String> {
 }
 
 fn walk(dir: &Path, out: &mut ScanReport) -> AppResult<()> {
-    if is_poster_cache_dir(dir) {
+    if is_poster_cache_dir(dir) || is_system_dir(dir) {
         return Ok(());
     }
 
-    // Read entries; collect file names and child directories.
+    // Read entries; collect file names and child directories. Per-folder
+    // I/O errors (permission denied, disconnected drive letter, etc.) are
+    // treated as non-fatal so that one bad subtree can't kill the whole
+    // scan — we just skip what we can't read.
+    let read_iter = match fs::read_dir(dir) {
+        Ok(it) => it,
+        Err(e) => {
+            tracing::warn!("scan: cannot read {}: {e}", dir.display());
+            return Ok(());
+        }
+    };
     let mut file_names: Vec<String> = Vec::new();
     let mut child_dirs: Vec<PathBuf> = Vec::new();
-    for entry in fs::read_dir(dir).map_err(AppError::from)? {
-        let entry = entry.map_err(AppError::from)?;
-        let kind = entry.file_type().map_err(AppError::from)?;
+    for entry in read_iter {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!("scan: bad entry in {}: {e}", dir.display());
+                continue;
+            }
+        };
+        let kind = match entry.file_type() {
+            Ok(k) => k,
+            Err(e) => {
+                tracing::warn!("scan: bad file_type for {:?}: {e}", entry.path());
+                continue;
+            }
+        };
         let name = entry.file_name().to_string_lossy().to_string();
         if kind.is_dir() {
             child_dirs.push(entry.path());
@@ -270,6 +292,38 @@ mod tests {
         let folders: Vec<&Path> =
             report.uncatalogued.iter().map(|u| u.folder.as_path()).collect();
         assert!(folders.contains(&hd.join("Bundle/Inner").as_path()), "{:#?}", report);
+    }
+
+    #[test]
+    fn scan_skips_windows_system_dirs_and_continues() {
+        // Repro of the user-reported bug: a Windows-style root with a
+        // `$RECYCLE.BIN` sibling next to a real movie folder. The recycle
+        // bin must be skipped entirely AND must not abort the scan, so
+        // the real movie still shows up.
+        let tmp = TempDir::new().unwrap();
+        let hd = tmp.path();
+        touch(&hd.join("$RECYCLE.BIN/whatever.bin"));
+        touch(&hd.join("System Volume Information/track.log"));
+        touch(&hd.join("Terror/A Longa Marcha/A Longa Marcha.mp4"));
+
+        let report = scan(hd).unwrap();
+
+        let folders: Vec<&Path> =
+            report.uncatalogued.iter().map(|u| u.folder.as_path()).collect();
+        assert!(
+            folders.contains(&hd.join("Terror/A Longa Marcha").as_path()),
+            "expected Terror/A Longa Marcha in {:#?}",
+            report
+        );
+        // System dirs must produce zero hits.
+        for u in &report.uncatalogued {
+            let s = u.folder.to_string_lossy();
+            assert!(!s.contains("$RECYCLE.BIN"), "{s} should be skipped");
+            assert!(
+                !s.contains("System Volume Information"),
+                "{s} should be skipped"
+            );
+        }
     }
 
     #[test]
