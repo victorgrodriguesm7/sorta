@@ -615,9 +615,26 @@ function Tile(props: {
   videoRef?: (el: HTMLVideoElement | null) => void;
 }) {
   const { t } = useTranslation();
+  const localRef = useRef<HTMLVideoElement | null>(null);
+  const goFullscreen = async () => {
+    const el = localRef.current;
+    if (!el) return;
+    try {
+      // Use the standard API; webkit fallback for older webviews.
+      if (el.requestFullscreen) {
+        await el.requestFullscreen();
+      } else if ((el as unknown as { webkitRequestFullscreen?: () => void })
+        .webkitRequestFullscreen) {
+        (el as unknown as { webkitRequestFullscreen: () => void })
+          .webkitRequestFullscreen();
+      }
+    } catch {
+      /* user gesture issues / not allowed — silently no-op */
+    }
+  };
   return (
     <div
-      className={`flex flex-col gap-2 rounded border p-2 ${
+      className={`group relative flex flex-col gap-2 rounded border p-2 ${
         props.chosen ? "border-accent" : "border-neutral-800"
       }`}
     >
@@ -627,13 +644,26 @@ function Tile(props: {
           {formatBytes(props.sizeBytes)}
         </span>
       </div>
-      <video
-        ref={props.videoRef}
-        src={props.src}
-        muted
-        playsInline
-        className="aspect-video w-full rounded bg-black"
-      />
+      <div className="relative">
+        <video
+          ref={(el) => {
+            localRef.current = el;
+            props.videoRef?.(el);
+          }}
+          src={props.src}
+          muted
+          playsInline
+          className="aspect-video w-full rounded bg-black"
+        />
+        <button
+          onClick={goFullscreen}
+          aria-label={t("compress.fullscreen", "Fullscreen")}
+          title={t("compress.fullscreen", "Fullscreen")}
+          className="absolute right-1.5 top-1.5 rounded bg-black/60 px-2 py-1 text-xs text-white opacity-0 transition hover:bg-black/80 group-hover:opacity-100 focus-visible:opacity-100"
+        >
+          ⛶
+        </button>
+      </div>
       {props.estimatedFinalBytes !== undefined && (
         <div className="flex items-center justify-between text-xs">
           <span className="text-neutral-400">
