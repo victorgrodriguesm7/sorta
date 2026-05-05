@@ -9,6 +9,17 @@ import {
   type MediaRow,
 } from "@/lib/tauri";
 import { formatBytes, formatDurationSeconds } from "@/lib/format";
+import { useLibrary } from "@/stores/library";
+
+const KNOWN_CODECS: readonly Codec[] = [
+  "hevc",
+  "h264",
+  "hevc_nvenc",
+  "hevc_qsv",
+  "hevc_amf",
+];
+const isKnownCodec = (s: string | null | undefined): s is Codec =>
+  !!s && (KNOWN_CODECS as readonly string[]).includes(s);
 
 interface Props {
   media: MediaRow;
@@ -28,11 +39,24 @@ export default function CompressionDialog({
   onDone,
 }: Props) {
   const { t } = useTranslation();
+  const { config, loadConfig } = useLibrary();
   const [phase, setPhase] = useState<Phase>("configure");
   const [error, setError] = useState<string | null>(null);
 
-  // Settings
-  const [codec, setCodec] = useState<Codec>("hevc");
+  // Settings — seeded from the saved user choice when present.
+  const savedCodec: Codec | null = isKnownCodec(config?.compression_codec)
+    ? (config!.compression_codec as Codec)
+    : null;
+  const [codec, setCodecState] = useState<Codec>(savedCodec ?? "hevc");
+  const setCodec = (c: Codec) => {
+    setCodecState(c);
+    void api
+      .setCompressionCodec(c)
+      .then(() => loadConfig())
+      .catch(() => {
+        /* non-fatal: still apply for this session */
+      });
+  };
   const [downscale720p, setDownscale720p] = useState(false);
   const [exhaustiveVerify, setExhaustiveVerify] = useState(false);
   const [previewCrfs, setPreviewCrfs] = useState<number[]>(DEFAULT_PREVIEW_CRFS);
@@ -72,7 +96,10 @@ export default function CompressionDialog({
           return;
         }
         setHwaccels(status.hwaccels);
-        // Auto-pick a hardware HEVC encoder if available.
+        // Only auto-pick when the user has no saved preference. If they
+        // picked AMF last time, we don't override that with NVENC just
+        // because both happen to be available now.
+        if (savedCodec) return;
         if (status.hwaccels.includes("nvenc")) setCodec("hevc_nvenc");
         else if (status.hwaccels.includes("qsv")) setCodec("hevc_qsv");
         else if (status.hwaccels.includes("amf")) setCodec("hevc_amf");
@@ -80,6 +107,7 @@ export default function CompressionDialog({
         setError((e as Error).message);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ----- subscribe to progress + report events while a job runs -----

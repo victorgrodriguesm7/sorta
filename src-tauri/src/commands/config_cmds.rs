@@ -19,6 +19,7 @@ pub struct ConfigDto {
     pub tmdb_api_key: Option<String>,
     pub ui_language: String,
     pub initialized: bool,
+    pub compression_codec: Option<String>,
 }
 
 fn config_dir(app: &AppHandle) -> AppResult<PathBuf> {
@@ -35,6 +36,7 @@ pub async fn get_config(app: AppHandle, state: State<'_, AppState>) -> AppResult
         hd_root: cfg.hd_root,
         tmdb_api_key: cfg.tmdb_api_key,
         ui_language: cfg.ui_language,
+        compression_codec: cfg.compression_codec,
         initialized,
     })
 }
@@ -62,6 +64,7 @@ pub async fn set_hd_root(
         hd_root: cfg.hd_root,
         tmdb_api_key: cfg.tmdb_api_key,
         ui_language: cfg.ui_language,
+        compression_codec: cfg.compression_codec,
         initialized: state.read().await.db.is_some(),
     })
 }
@@ -86,8 +89,24 @@ pub async fn set_api_key(
         hd_root: cfg.hd_root,
         tmdb_api_key: cfg.tmdb_api_key,
         ui_language: cfg.ui_language,
+        compression_codec: cfg.compression_codec,
         initialized: state.read().await.db.is_some(),
     })
+}
+
+/// Persist the user's preferred compression encoder so the dialog
+/// doesn't auto-pick a different one (e.g. NVENC) on the next launch.
+#[tauri::command]
+pub async fn set_compression_codec(
+    app: AppHandle,
+    _state: State<'_, AppState>,
+    codec: String,
+) -> AppResult<()> {
+    let dir = config_dir(&app)?;
+    let mut cfg = UserConfig::load(&dir)?;
+    cfg.compression_codec = Some(codec);
+    cfg.save(&dir)?;
+    Ok(())
 }
 
 #[tauri::command]

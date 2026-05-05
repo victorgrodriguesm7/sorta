@@ -11,6 +11,7 @@ vi.mock("@tauri-apps/api/core", () => ({
         tmdb_api_key: null,
         ui_language: "en-US",
         initialized: false,
+        compression_codec: null,
       };
     }
     return null;

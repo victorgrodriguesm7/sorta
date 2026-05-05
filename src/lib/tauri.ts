@@ -33,6 +33,7 @@ export interface ConfigDto {
   tmdb_api_key: string | null;
   ui_language: string;
   initialized: boolean;
+  compression_codec: string | null;
 }
 
 export interface MediaRow {
@@ -85,6 +86,8 @@ export const api = {
     invoke<ConfigDto>("set_api_key", { apiKey }),
   setUiLanguage: (language: string) =>
     invoke<void>("set_ui_language", { language }),
+  setCompressionCodec: (codec: Codec) =>
+    invoke<void>("set_compression_codec", { codec }),
   scanNow: () => invoke<ScanResult>("scan_now"),
   listMoviesByGenre: (genreId: number) =>
     invoke<MediaRow[]>("list_movies_by_genre", { genreId }),

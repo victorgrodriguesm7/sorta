@@ -15,6 +15,7 @@ beforeEach(() => {
       tmdb_api_key: "k",
       ui_language: "en-US",
       initialized: true,
+      compression_codec: null,
     },
     uncatalogued: [
       { folder: "/x", video_filename: "a.mkv", kind: "movie" },

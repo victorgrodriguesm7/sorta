@@ -21,6 +21,12 @@ pub struct UserConfig {
     pub tmdb_api_key: Option<String>,
     #[serde(default = "default_language")]
     pub ui_language: String,
+    /// Last-chosen compression encoder (serde tag of `Codec`, e.g.
+    /// "hevc", "h264", "hevc_nvenc", "hevc_qsv", "hevc_amf"). When
+    /// present, the compression dialog uses it instead of auto-picking
+    /// a hardware encoder.
+    #[serde(default)]
+    pub compression_codec: Option<String>,
 }
 
 fn default_language() -> String {
@@ -77,11 +83,13 @@ mod tests {
         cfg.hd_root = Some(PathBuf::from("D:/Movies"));
         cfg.tmdb_api_key = Some("abc".to_string());
         cfg.ui_language = "pt-BR".to_string();
+        cfg.compression_codec = Some("hevc_amf".to_string());
         cfg.save(tmp.path()).unwrap();
 
         let loaded = UserConfig::load(tmp.path()).unwrap();
         assert_eq!(loaded.hd_root, Some(PathBuf::from("D:/Movies")));
         assert_eq!(loaded.tmdb_api_key.as_deref(), Some("abc"));
         assert_eq!(loaded.ui_language, "pt-BR");
+        assert_eq!(loaded.compression_codec.as_deref(), Some("hevc_amf"));
     }
 }
