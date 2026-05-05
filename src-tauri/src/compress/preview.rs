@@ -84,12 +84,19 @@ pub async fn probe_duration(ffprobe: &Path, file: &Path) -> AppResult<f64> {
 }
 
 /// Verify a file's structural integrity. Returns Ok(()) iff ffprobe
-/// finds no errors. Cheap: a few hundred ms even for big files.
+/// can parse the container + stream headers without error. Cheap: a
+/// few hundred ms even for big files.
+///
+/// Note the deliberate absence of `-f null -` here — that's an ffmpeg
+/// (null muxer) flag, NOT an ffprobe one. ffprobe rejects unknown
+/// formats. Earlier this function shipped the ffmpeg flags by mistake
+/// and rejected EVERY freshly-encoded file with
+///   "Unknown input format: null"
+/// even though the file itself was fine.
 pub async fn verify_structural(ffprobe: &Path, file: &Path) -> AppResult<()> {
     let out = Command::new(ffprobe)
-        .args(["-v", "error", "-i"])
+        .args(["-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0"])
         .arg(file)
-        .args(["-f", "null", "-"])
         .stdout(Stdio::null())
         .output()
         .await
@@ -100,7 +107,7 @@ pub async fn verify_structural(ffprobe: &Path, file: &Path) -> AppResult<()> {
     }
     let stderr = String::from_utf8_lossy(&out.stderr);
     if !stderr.trim().is_empty() {
-        // ffprobe with `-v error` only writes stderr when errors occur.
+        // With `-v error` ffprobe only writes stderr on real errors.
         return Err(AppError::Other(format!("verify reported: {stderr}")));
     }
     Ok(())
