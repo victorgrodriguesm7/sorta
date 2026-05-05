@@ -108,23 +108,50 @@ pub fn build_encode_argv(args: &EncodeArgs<'_>) -> Vec<String> {
     argv.push("-c:v".into());
     argv.push(args.codec.ffmpeg_name().into());
 
-    // Quality knob — name varies between encoders.
-    let quality_flag = match args.codec {
-        Codec::Hevc | Codec::H264 => "-crf",
-        Codec::HevcNvenc | Codec::HevcAmf => "-cq",
-        Codec::HevcQsv => "-global_quality",
-    };
-    argv.push(quality_flag.into());
-    argv.push(args.crf.to_string());
-
-    // Software HEVC: medium preset is the "best size for time" sweet spot.
-    if matches!(args.codec, Codec::Hevc) {
-        argv.push("-preset".into());
-        argv.push("medium".into());
-    }
-    if matches!(args.codec, Codec::H264) {
-        argv.push("-preset".into());
-        argv.push("medium".into());
+    // Rate control + quality flags. Hardware encoders DEFAULT to a
+    // bitrate-targeting mode and silently ignore -cq / -global_quality
+    // unless their rate-control mode is set explicitly. Without this,
+    // CRF 22 / 26 / 28 all produce the same output size — a real bug
+    // we hit in testing.
+    match args.codec {
+        Codec::Hevc | Codec::H264 => {
+            argv.push("-crf".into());
+            argv.push(args.crf.to_string());
+            argv.push("-preset".into());
+            argv.push("medium".into());
+        }
+        Codec::HevcNvenc => {
+            // Constant QP mode: -rc constqp + -qp <n>. -cq alone only
+            // works alongside -rc vbr ... and even then is fragile.
+            argv.push("-rc".into());
+            argv.push("constqp".into());
+            argv.push("-qp".into());
+            argv.push(args.crf.to_string());
+            // The "p4" preset is NVENC's medium speed/quality tradeoff
+            // on modern drivers (p1 fastest, p7 slowest).
+            argv.push("-preset".into());
+            argv.push("p4".into());
+        }
+        Codec::HevcQsv => {
+            // ICQ (intelligent constant quality) is the closest analog
+            // to CRF for QSV. Quality is taken from -global_quality.
+            argv.push("-global_quality".into());
+            argv.push(args.crf.to_string());
+            // Disable lookahead so -global_quality is the dominant knob.
+            argv.push("-look_ahead".into());
+            argv.push("0".into());
+        }
+        Codec::HevcAmf => {
+            // CQP rate control + per-frame QP values.
+            argv.push("-rc".into());
+            argv.push("cqp".into());
+            argv.push("-qp_i".into());
+            argv.push(args.crf.to_string());
+            argv.push("-qp_p".into());
+            argv.push(args.crf.to_string());
+            argv.push("-qp_b".into());
+            argv.push(args.crf.to_string());
+        }
     }
 
     // Audio: copy through.
@@ -330,7 +357,10 @@ mod tests {
     }
 
     #[test]
-    fn nvenc_uses_cq_not_crf() {
+    fn nvenc_forces_constqp_so_quality_flag_is_respected() {
+        // Regression: previously this just emitted -cq <n>, which NVENC
+        // ignores unless -rc is also set. CRF 22 / 26 / 28 then produced
+        // identical-size outputs.
         let args = EncodeArgs {
             input: &p("/in.mkv"),
             output: &p("/out.mkv"),
@@ -343,12 +373,17 @@ mod tests {
         };
         let argv = build_encode_argv(&args);
         assert!(argv.contains(&"hevc_nvenc".to_string()));
-        assert!(argv.contains(&"-cq".to_string()));
+        assert!(argv.contains(&"-rc".to_string()));
+        assert!(argv.contains(&"constqp".to_string()));
+        assert!(argv.contains(&"-qp".to_string()));
+        assert!(argv.contains(&"24".to_string()));
+        // -cq is ineffective without -rc vbr, so we no longer emit it.
+        assert!(!argv.contains(&"-cq".to_string()));
         assert!(!argv.contains(&"-crf".to_string()));
     }
 
     #[test]
-    fn qsv_uses_global_quality() {
+    fn qsv_uses_global_quality_with_lookahead_disabled() {
         let args = EncodeArgs {
             input: &p("/in.mkv"),
             output: &p("/out.mkv"),
@@ -361,6 +396,37 @@ mod tests {
         };
         let argv = build_encode_argv(&args);
         assert!(argv.contains(&"-global_quality".to_string()));
+        assert!(argv.contains(&"24".to_string()));
+        // Look-ahead off so -global_quality is the dominant knob.
+        let look_idx = argv
+            .iter()
+            .position(|s| s == "-look_ahead")
+            .expect("-look_ahead present");
+        assert_eq!(argv.get(look_idx + 1).map(String::as_str), Some("0"));
+    }
+
+    #[test]
+    fn amf_uses_cqp_with_per_frame_qp() {
+        let args = EncodeArgs {
+            input: &p("/in.mkv"),
+            output: &p("/out.mkv"),
+            codec: Codec::HevcAmf,
+            crf: 24,
+            downscale_720p: false,
+            start_seconds: None,
+            duration_seconds: None,
+            progress_to_stderr: false,
+        };
+        let argv = build_encode_argv(&args);
+        assert!(argv.contains(&"hevc_amf".to_string()));
+        assert!(argv.contains(&"-rc".to_string()));
+        assert!(argv.contains(&"cqp".to_string()));
+        for flag in ["-qp_i", "-qp_p", "-qp_b"] {
+            assert!(
+                argv.contains(&flag.to_string()),
+                "missing {flag} in {argv:?}"
+            );
+        }
     }
 
     #[test]
