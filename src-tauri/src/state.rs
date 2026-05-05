@@ -6,6 +6,7 @@ use std::sync::Arc;
 use sqlx::SqlitePool;
 use tokio::sync::RwLock;
 
+use crate::compress::job::JobRegistry;
 use crate::scanner::watcher::WatcherHandle;
 use crate::tmdb::TmdbClient;
 
@@ -20,6 +21,8 @@ pub struct AppStateInner {
     pub tmdb: Option<TmdbClient>,
     /// Live filesystem watcher.
     pub watcher: Option<WatcherHandle>,
+    /// Active compression jobs (cancellation flags).
+    pub jobs: JobRegistry,
 }
 
 pub type AppState = Arc<RwLock<AppStateInner>>;

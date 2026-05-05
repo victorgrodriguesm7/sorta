@@ -11,6 +11,7 @@
 //! - [`error`]: shared error type
 
 pub mod commands;
+pub mod compress;
 pub mod config;
 pub mod db;
 pub mod error;
@@ -70,6 +71,14 @@ pub fn run() {
             commands::link::link_as_series,
             commands::link::update_season_label,
             commands::link::unlink_media,
+            commands::compress_cmds::ffmpeg_status,
+            commands::compress_cmds::media_total_bytes,
+            commands::compress_cmds::generate_compression_preview,
+            commands::compress_cmds::start_compression,
+            commands::compress_cmds::cancel_compression,
+            commands::compress_cmds::cleanup_originals_for,
+            commands::compress_cmds::has_original_backups,
+            commands::compress_cmds::discard_preview_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -121,6 +121,13 @@ pub async fn delete_media(pool: &SqlitePool, id: i64) -> AppResult<()> {
     Ok(())
 }
 
+/// Return the absolute folder path on disk that holds a media row's
+/// content. Used by callers that need to walk the folder (compression,
+/// size totals, etc.).
+pub fn media_folder(hd_root: &std::path::Path, row: &MediaRow) -> std::path::PathBuf {
+    hd_root.join(&row.folder_path)
+}
+
 /// List all media of a given type.
 pub async fn list_by_type(pool: &SqlitePool, media_type: MediaType) -> AppResult<Vec<MediaRow>> {
     sqlx::query_as::<_, MediaRow>(
