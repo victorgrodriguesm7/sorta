@@ -33,6 +33,12 @@ interface LibraryState {
   checked: Set<string>;
   loading: boolean;
   error: string | null;
+  /** Compression dialog (hoisted out of RightPanel so the watcher
+   *  refresh can't unmount it mid-encode). */
+  compression: { media: MediaRow; totalBytes: number } | null;
+  /** Bumped after a compression job completes; the RightPanel uses
+   *  it to know when to re-fetch totalBytes / hasOriginalBackups. */
+  compressionDoneTick: number;
 
   loadConfig: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -40,6 +46,18 @@ interface LibraryState {
   selectItem: (sel: Selection | null) => void;
   toggleChecked: (key: string) => void;
   clearChecked: () => void;
+  openCompression: (media: MediaRow, totalBytes: number) => void;
+  closeCompression: (didFinish?: boolean) => void;
+}
+
+function sameLeftSelection(a: LeftSelection, b: LeftSelection): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "movieGenre" && b.kind === "movieGenre") {
+    if (a.group.length !== b.group.length) return false;
+    const aIds = new Set(a.group.map((g) => g.id));
+    return b.group.every((g) => aIds.has(g.id));
+  }
+  return true;
 }
 
 export const checkKey = (folder: string, file: string) => `${folder}|${file}`;
@@ -56,6 +74,8 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   checked: new Set<string>(),
   loading: false,
   error: null,
+  compression: null,
+  compressionDoneTick: 0,
 
   toggleChecked: (key: string) => {
     const cur = new Set(get().checked);
@@ -64,6 +84,15 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     set({ checked: cur });
   },
   clearChecked: () => set({ checked: new Set<string>() }),
+  openCompression: (media, totalBytes) =>
+    set({ compression: { media, totalBytes } }),
+  closeCompression: (didFinish?: boolean) =>
+    set((s) => ({
+      compression: null,
+      compressionDoneTick: didFinish
+        ? s.compressionDoneTick + 1
+        : s.compressionDoneTick,
+    })),
 
   async loadConfig() {
     try {
@@ -100,7 +129,18 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   },
 
   async selectLeft(sel) {
-    set({ leftSelection: sel, selection: null, checked: new Set<string>() });
+    // Preserve the current right-panel selection (and the multi-select
+    // checkboxes) when this is a no-op nav — e.g. the watcher fires
+    // a refresh and we re-call selectLeft with the SAME bucket. Without
+    // this guard, every background refresh would clear whatever the
+    // user was looking at.
+    const prev = get().leftSelection;
+    const same = sameLeftSelection(prev, sel);
+    set({
+      leftSelection: sel,
+      selection: same ? get().selection : null,
+      checked: same ? get().checked : new Set<string>(),
+    });
     try {
       if (sel.kind === "movieGenre") {
         const list = await api.listMoviesByGenres(sel.group.map((g) => g.id));

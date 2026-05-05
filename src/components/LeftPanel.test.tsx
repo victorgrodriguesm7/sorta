@@ -48,6 +48,8 @@ beforeEach(() => {
     selection: null,
     loading: false,
     error: null,
+    compression: null,
+    compressionDoneTick: 0,
   });
 });
 

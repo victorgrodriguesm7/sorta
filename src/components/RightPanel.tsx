@@ -4,12 +4,18 @@ import { useLibrary } from "@/stores/library";
 import { api, type GenreRow } from "@/lib/tauri";
 import SearchDialog from "./SearchDialog";
 import GenreEditor from "./GenreEditor";
-import CompressionDialog from "./CompressionDialog";
 import { formatBytes } from "@/lib/format";
 
 export default function RightPanel() {
   const { t } = useTranslation();
-  const { selection, refresh, config, selectItem } = useLibrary();
+  const {
+    selection,
+    refresh,
+    config,
+    selectItem,
+    openCompression,
+    compressionDoneTick,
+  } = useLibrary();
   const [searchOpen, setSearchOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -22,7 +28,6 @@ export default function RightPanel() {
   const [totalBytes, setTotalBytes] = useState<number | null>(null);
   const [hasOriginals, setHasOriginals] = useState(false);
   const [cleaningUp, setCleaningUp] = useState(false);
-  const [compressOpen, setCompressOpen] = useState(false);
 
   useEffect(() => {
     setRenaming(false);
@@ -48,17 +53,6 @@ export default function RightPanel() {
         .catch(() => {
           /* non-fatal: keep the fallback */
         });
-      // Folder size + originals presence (best-effort).
-      setTotalBytes(null);
-      setHasOriginals(false);
-      void api
-        .mediaTotalBytes(id)
-        .then(setTotalBytes)
-        .catch(() => setTotalBytes(0));
-      void api
-        .hasOriginalBackups(id)
-        .then(setHasOriginals)
-        .catch(() => setHasOriginals(false));
     } else {
       setGenres([]);
       setPosterSrc(null);
@@ -66,6 +60,23 @@ export default function RightPanel() {
       setHasOriginals(false);
     }
   }, [selection]);
+
+  // Folder size + originals presence (best-effort). Refetched whenever
+  // the selection changes OR a compression job just finished.
+  useEffect(() => {
+    if (selection?.kind !== "media") return;
+    const id = selection.row.id;
+    setTotalBytes(null);
+    setHasOriginals(false);
+    void api
+      .mediaTotalBytes(id)
+      .then(setTotalBytes)
+      .catch(() => setTotalBytes(0));
+    void api
+      .hasOriginalBackups(id)
+      .then(setHasOriginals)
+      .catch(() => setHasOriginals(false));
+  }, [selection, compressionDoneTick]);
 
   if (!selection) {
     return (
@@ -266,7 +277,7 @@ export default function RightPanel() {
           </button>
           <button
             className="rounded border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-800"
-            onClick={() => setCompressOpen(true)}
+            onClick={() => openCompression(row, totalBytes ?? 0)}
           >
             {t("actions.compress", "Compress")}
           </button>
@@ -294,20 +305,6 @@ export default function RightPanel() {
           )}
         </div>
 
-        {compressOpen && (
-          <CompressionDialog
-            media={row}
-            totalBytes={totalBytes ?? 0}
-            onClose={() => setCompressOpen(false)}
-            onDone={async () => {
-              const fresh = await api.mediaTotalBytes(row.id);
-              setTotalBytes(fresh);
-              const has = await api.hasOriginalBackups(row.id);
-              setHasOriginals(has);
-              await refresh();
-            }}
-          />
-        )}
 
         {unlinkConfirm && (
           <div className="rounded border border-red-900/60 bg-red-900/20 p-3 text-sm text-red-100">

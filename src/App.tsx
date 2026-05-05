@@ -5,12 +5,14 @@ import LeftPanel from "@/components/LeftPanel";
 import CenterList from "@/components/CenterList";
 import RightPanel from "@/components/RightPanel";
 import SettingsModal from "@/components/SettingsModal";
+import CompressionDialog from "@/components/CompressionDialog";
 import { useLibrary } from "@/stores/library";
 
 export default function App() {
   const { t } = useTranslation();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const { config, loadConfig, refresh } = useLibrary();
+  const { config, loadConfig, refresh, compression, closeCompression } =
+    useLibrary();
 
   useEffect(() => {
     void (async () => {
@@ -70,6 +72,19 @@ export default function App() {
       )}
 
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+
+      {compression && (
+        <CompressionDialog
+          media={compression.media}
+          totalBytes={compression.totalBytes}
+          onClose={() => closeCompression(false)}
+          onDone={() => {
+            // Bump the done-tick so RightPanel re-fetches size + originals.
+            closeCompression(true);
+            void refresh();
+          }}
+        />
+      )}
     </div>
   );
 }
