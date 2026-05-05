@@ -127,32 +127,43 @@ pub async fn generate_compression_preview(
 
     let source_size = std::fs::metadata(&source).map(|m| m.len()).unwrap_or(0);
 
+    // Total bytes the *whole* media folder currently uses — used to
+    // extrapolate an estimated-final-size for each preview clip.
+    let total_media_bytes = folder_video_bytes(&folder);
+
     // Temp directory under the system temp.
     let job_id = new_job_id();
     let tmp_dir = std::env::temp_dir().join(format!("sorta-preview-{job_id}"));
     std::fs::create_dir_all(&tmp_dir).map_err(AppError::from)?;
 
-    // Measure the original segment via stream copy.
-    let orig_segment = tmp_dir.join("original.mkv");
-    let orig_segment_bytes =
-        measure_original_segment(&ffmpeg, &source, &orig_segment, start, duration).await?;
+    // Step 1: extract the segment ONCE via stream-copy, into a working
+    // source file. The previous "measure_original_segment" did the same
+    // thing but the previews transcoded from the FULL source — so the
+    // 'original size' shown to the user wasn't comparable to the encoded
+    // sizes. Encoding everything from this working source guarantees an
+    // apples-to-apples comparison.
+    let working_source = tmp_dir.join("source.mkv");
+    let working_source_bytes =
+        measure_original_segment(&ffmpeg, &source, &working_source, start, duration).await?;
 
     let mut clips = Vec::new();
     for crf in args.crfs.iter().copied() {
         let out = tmp_dir.join(format!("crf-{crf}.mkv"));
+        // Encode the WORKING SOURCE (not the full media) — start = 0,
+        // duration = full segment length.
         let bytes = encode_preview(
             &ffmpeg,
-            &source,
+            &working_source,
             &out,
             codec,
             crf,
             args.downscale_720p,
-            start,
+            0.0,
             duration,
         )
         .await?;
-        let ratio = if orig_segment_bytes > 0 {
-            1.0 - (bytes as f64 / orig_segment_bytes as f64)
+        let ratio = if working_source_bytes > 0 {
+            1.0 - (bytes as f64 / working_source_bytes as f64)
         } else {
             0.0
         };
@@ -161,25 +172,35 @@ pub async fn generate_compression_preview(
             path: out,
             size_bytes: bytes,
             source_size_bytes: source_size,
-            original_segment_size_bytes: orig_segment_bytes,
+            original_segment_size_bytes: working_source_bytes,
             ratio,
         });
     }
 
-    // Read each clip into a base64 data URL for the UI <video> tag.
+    // Read each clip into a base64 data URL for the UI <video> tag,
+    // and extrapolate an estimated FINAL size by scaling the
+    // (preview / source) ratio across the entire media folder.
     let mut dto_clips = Vec::with_capacity(clips.len());
     for c in clips.iter() {
         let bytes = std::fs::read(&c.path).map_err(AppError::from)?;
-        let mime = "video/x-matroska"; // most webviews still play h264/h265 in mkv via mediasource.
+        let mime = "video/x-matroska";
         let data_url = format!("data:{mime};base64,{}", B64.encode(&bytes));
+        let estimated_final_bytes = if working_source_bytes > 0 {
+            ((total_media_bytes as f64) * (c.size_bytes as f64)
+                / (working_source_bytes as f64))
+                .round() as u64
+        } else {
+            0
+        };
         dto_clips.push(PreviewClipDto {
             crf: c.crf,
             size_bytes: c.size_bytes,
             ratio: c.ratio,
             data_url,
+            estimated_final_bytes,
         });
     }
-    let original_bytes = std::fs::read(&orig_segment).map_err(AppError::from)?;
+    let original_bytes = std::fs::read(&working_source).map_err(AppError::from)?;
     let original_data_url = format!(
         "data:video/x-matroska;base64,{}",
         B64.encode(&original_bytes)
@@ -190,7 +211,8 @@ pub async fn generate_compression_preview(
         source_duration_seconds: total_duration,
         start_seconds: start,
         duration_seconds: duration,
-        original_segment_size_bytes: orig_segment_bytes,
+        original_segment_size_bytes: working_source_bytes,
+        total_media_bytes,
         original_data_url,
         clips: dto_clips,
         tmp_dir,
@@ -203,6 +225,9 @@ pub struct PreviewClipDto {
     pub size_bytes: u64,
     pub ratio: f64,
     pub data_url: String,
+    /// Extrapolated final size for the WHOLE media folder if this CRF
+    /// were applied: total_media_bytes * (preview_size / source_size).
+    pub estimated_final_bytes: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -212,6 +237,7 @@ pub struct PreviewBundleDto {
     pub start_seconds: f64,
     pub duration_seconds: f64,
     pub original_segment_size_bytes: u64,
+    pub total_media_bytes: u64,
     pub original_data_url: String,
     pub clips: Vec<PreviewClipDto>,
     pub tmp_dir: PathBuf,

@@ -185,8 +185,15 @@ export const api = {
       start_seconds: number;
       duration_seconds: number;
       original_segment_size_bytes: number;
+      total_media_bytes: number;
       original_data_url: string;
-      clips: { crf: number; size_bytes: number; ratio: number; data_url: string }[];
+      clips: {
+        crf: number;
+        size_bytes: number;
+        ratio: number;
+        data_url: string;
+        estimated_final_bytes: number;
+      }[];
       tmp_dir: string;
     }>("generate_compression_preview", {
       args: {

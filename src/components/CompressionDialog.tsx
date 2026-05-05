@@ -43,9 +43,16 @@ export default function CompressionDialog({
   const [preview, setPreview] = useState<{
     original_data_url: string;
     original_segment_size_bytes: number;
+    total_media_bytes: number;
     duration_seconds: number;
     start_seconds: number;
-    clips: { crf: number; size_bytes: number; ratio: number; data_url: string }[];
+    clips: {
+      crf: number;
+      size_bytes: number;
+      ratio: number;
+      data_url: string;
+      estimated_final_bytes: number;
+    }[];
     tmp_dir: string;
   } | null>(null);
   const [chosenCrf, setChosenCrf] = useState<number | null>(null);
@@ -397,9 +404,16 @@ function ComparePanel(props: {
   preview: {
     original_data_url: string;
     original_segment_size_bytes: number;
+    total_media_bytes: number;
     duration_seconds: number;
     start_seconds: number;
-    clips: { crf: number; size_bytes: number; ratio: number; data_url: string }[];
+    clips: {
+      crf: number;
+      size_bytes: number;
+      ratio: number;
+      data_url: string;
+      estimated_final_bytes: number;
+    }[];
     tmp_dir: string;
   };
   chosenCrf: number | null;
@@ -407,36 +421,154 @@ function ComparePanel(props: {
 }) {
   const { t } = useTranslation();
   const { preview } = props;
-  const cols = 1 + preview.clips.length;
+
+  // Tiles in display order: Original first, then each CRF preview.
+  type TileSpec = {
+    key: string;
+    label: string;
+    src: string;
+    sizeBytes: number;
+    ratio?: number;
+    estimatedFinalBytes?: number;
+    crf?: number;
+  };
+  const tiles: TileSpec[] = [
+    {
+      key: "original",
+      label: t("compress.original", "Original"),
+      src: preview.original_data_url,
+      sizeBytes: preview.original_segment_size_bytes,
+      estimatedFinalBytes: preview.total_media_bytes,
+    },
+    ...preview.clips.map((c) => ({
+      key: `crf-${c.crf}`,
+      label: `CRF ${c.crf}`,
+      src: c.data_url,
+      sizeBytes: c.size_bytes,
+      ratio: c.ratio,
+      estimatedFinalBytes: c.estimated_final_bytes,
+      crf: c.crf,
+    })),
+  ];
+
+  // Refs to all <video> elements (in tile order) for synchronised playback.
+  const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+  videoRefs.current = videoRefs.current.slice(0, tiles.length);
+
+  const [playing, setPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [muted, setMuted] = useState(true);
+  const duration = preview.duration_seconds;
+
+  // Drive videos in lockstep. We use the first video as the time
+  // source via timeupdate; every other video is forced to follow.
+  const seek = (t: number) => {
+    const clamped = Math.max(0, Math.min(duration, t));
+    videoRefs.current.forEach((v) => {
+      if (v) v.currentTime = clamped;
+    });
+    setCurrentTime(clamped);
+  };
+  const play = async () => {
+    // Make sure every video is at the same time first.
+    seek(currentTime);
+    await Promise.all(
+      videoRefs.current.map((v) => (v ? v.play().catch(() => {}) : null)),
+    );
+    setPlaying(true);
+  };
+  const pause = () => {
+    videoRefs.current.forEach((v) => v && v.pause());
+    setPlaying(false);
+  };
+
+  // Mute is per-video; mirror to all.
+  useEffect(() => {
+    videoRefs.current.forEach((v) => {
+      if (v) v.muted = muted;
+    });
+  }, [muted]);
+
+  // Resync if videos drift more than ~120ms (browsers vary on playback rate).
+  useEffect(() => {
+    if (!playing) return;
+    const id = window.setInterval(() => {
+      const lead = videoRefs.current[0];
+      if (!lead) return;
+      const t = lead.currentTime;
+      setCurrentTime(t);
+      videoRefs.current.slice(1).forEach((v) => {
+        if (v && Math.abs(v.currentTime - t) > 0.12) {
+          v.currentTime = t;
+        }
+      });
+      // Loop manually so all tiles loop together.
+      if (t >= duration - 0.05) {
+        seek(0);
+      }
+    }, 200);
+    return () => window.clearInterval(id);
+  }, [playing, duration]);
+
   return (
     <div className="space-y-3">
       <p className="text-xs text-neutral-500">
         {t(
           "compress.compare_blurb",
-          "Each clip is the same {{dur}}s slice of the source, encoded at a different quality.",
+          "All four clips are the same {{dur}}s segment of your media. Use the controls below to play them together.",
           { dur: Math.round(preview.duration_seconds) },
         )}
       </p>
-      <div
-        className="grid gap-3"
-        style={{
-          gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-        }}
-      >
-        <Tile
-          label={t("compress.original", "Original")}
-          src={preview.original_data_url}
-          sizeBytes={preview.original_segment_size_bytes}
+
+      {/* Master transport */}
+      <div className="flex items-center gap-3 rounded bg-neutral-800/60 px-3 py-2">
+        <button
+          onClick={() => (playing ? pause() : void play())}
+          className="rounded bg-accent px-3 py-1 text-sm font-medium text-white hover:bg-accent-hover"
+        >
+          {playing ? t("compress.pause", "Pause") : t("compress.play", "Play")}
+        </button>
+        <span className="font-mono text-xs text-neutral-400">
+          {currentTime.toFixed(1)} / {duration.toFixed(1)} s
+        </span>
+        <input
+          type="range"
+          min={0}
+          max={duration}
+          step={0.05}
+          value={currentTime}
+          onChange={(e) => seek(parseFloat(e.target.value))}
+          className="flex-1 accent-accent"
         />
-        {preview.clips.map((c) => (
+        <button
+          onClick={() => setMuted((m) => !m)}
+          className="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800"
+        >
+          {muted
+            ? t("compress.unmute", "🔇 Unmute")
+            : t("compress.mute", "🔊 Mute")}
+        </button>
+      </div>
+
+      {/* Fixed 2x2 grid */}
+      <div className="grid grid-cols-2 gap-3">
+        {tiles.map((tile, i) => (
           <Tile
-            key={c.crf}
-            label={`CRF ${c.crf}`}
-            src={c.data_url}
-            sizeBytes={c.size_bytes}
-            ratio={c.ratio}
-            chosen={props.chosenCrf === c.crf}
-            onChoose={() => props.setChosenCrf(c.crf)}
+            key={tile.key}
+            label={tile.label}
+            src={tile.src}
+            sizeBytes={tile.sizeBytes}
+            ratio={tile.ratio}
+            estimatedFinalBytes={tile.estimatedFinalBytes}
+            chosen={tile.crf != null && props.chosenCrf === tile.crf}
+            onChoose={
+              tile.crf != null
+                ? () => props.setChosenCrf(tile.crf!)
+                : undefined
+            }
+            videoRef={(el) => {
+              videoRefs.current[i] = el;
+            }}
           />
         ))}
       </div>
@@ -449,8 +581,10 @@ function Tile(props: {
   src: string;
   sizeBytes: number;
   ratio?: number;
+  estimatedFinalBytes?: number;
   chosen?: boolean;
   onChoose?: () => void;
+  videoRef?: (el: HTMLVideoElement | null) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -466,17 +600,24 @@ function Tile(props: {
         </span>
       </div>
       <video
+        ref={props.videoRef}
         src={props.src}
-        controls
         muted
-        loop
+        playsInline
         className="aspect-video w-full rounded bg-black"
       />
-      {props.ratio !== undefined && (
-        <div className="text-xs text-neutral-400">
-          {t("compress.savings", "{{pct}}% smaller", {
-            pct: Math.round(props.ratio * 100),
-          })}
+      {props.estimatedFinalBytes !== undefined && (
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-neutral-400">
+            {props.ratio !== undefined
+              ? t("compress.savings", "{{pct}}% smaller", {
+                  pct: Math.round(props.ratio * 100),
+                })
+              : t("compress.full_media", "Full media (current)")}
+          </span>
+          <span className="font-mono text-neutral-300">
+            ~ {formatBytes(props.estimatedFinalBytes)}
+          </span>
         </div>
       )}
       {props.onChoose && (
