@@ -162,4 +162,110 @@ export const api = {
     }>("unlink_media", {
       args: { media_id: mediaId, rename_back: renameBack },
     }),
+  ffmpegStatus: () =>
+    invoke<{
+      ffmpeg_path: string | null;
+      ffprobe_path: string | null;
+      ffmpeg_version: string | null;
+      hwaccels: string[];
+    }>("ffmpeg_status"),
+  mediaTotalBytes: (mediaId: number) =>
+    invoke<number>("media_total_bytes", { mediaId }),
+  generateCompressionPreview: (args: {
+    mediaId: number;
+    crfs: number[];
+    codec: Codec | null;
+    downscale720p: boolean;
+    startSeconds?: number | null;
+    durationSeconds?: number | null;
+  }) =>
+    invoke<{
+      source_path: string;
+      source_duration_seconds: number;
+      start_seconds: number;
+      duration_seconds: number;
+      original_segment_size_bytes: number;
+      original_data_url: string;
+      clips: { crf: number; size_bytes: number; ratio: number; data_url: string }[];
+      tmp_dir: string;
+    }>("generate_compression_preview", {
+      args: {
+        media_id: args.mediaId,
+        crfs: args.crfs,
+        codec: args.codec,
+        downscale_720p: args.downscale720p,
+        start_seconds: args.startSeconds ?? null,
+        duration_seconds: args.durationSeconds ?? null,
+      },
+    }),
+  startCompression: (args: {
+    mediaId: number;
+    codec: Codec;
+    crf: number;
+    downscale720p: boolean;
+    exhaustiveVerify: boolean;
+  }) =>
+    invoke<{ job_id: string }>("start_compression", {
+      args: {
+        media_id: args.mediaId,
+        codec: args.codec,
+        crf: args.crf,
+        downscale_720p: args.downscale720p,
+        exhaustive_verify: args.exhaustiveVerify,
+      },
+    }),
+  cancelCompression: (jobId: string) =>
+    invoke<boolean>("cancel_compression", { jobId }),
+  cleanupOriginalsFor: (mediaId: number) =>
+    invoke<{ files_removed: number; bytes_freed: number }>(
+      "cleanup_originals_for",
+      { mediaId },
+    ),
+  hasOriginalBackups: (mediaId: number) =>
+    invoke<boolean>("has_original_backups", { mediaId }),
+  discardPreviewDir: (tmpDir: string) =>
+    invoke<void>("discard_preview_dir", { tmpDir }),
 };
+
+export type Codec =
+  | "hevc"
+  | "h264"
+  | "hevc_nvenc"
+  | "hevc_qsv"
+  | "hevc_amf";
+
+export type CompressionState =
+  | "encoding"
+  | "verifying"
+  | "swapping"
+  | "done"
+  | "cancelled"
+  | "failed";
+
+export interface CompressionProgress {
+  job_id: string;
+  current_file_index: number;
+  total_files: number;
+  current_file_name: string;
+  current_file_duration_seconds: number;
+  current_file_position_seconds: number;
+  current_file_speed: number | null;
+  eta_current_file_seconds: number | null;
+  eta_total_seconds: number | null;
+  state: CompressionState;
+  bytes_saved: number;
+}
+
+export interface CompressionReport {
+  job_id: string;
+  state: CompressionState;
+  total_original_bytes: number;
+  total_compressed_bytes: number;
+  outcomes: {
+    file: string;
+    original_bytes: number;
+    compressed_bytes: number | null;
+    error: string | null;
+    skipped: boolean;
+  }[];
+}

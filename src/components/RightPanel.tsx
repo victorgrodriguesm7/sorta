@@ -4,6 +4,8 @@ import { useLibrary } from "@/stores/library";
 import { api, type GenreRow } from "@/lib/tauri";
 import SearchDialog from "./SearchDialog";
 import GenreEditor from "./GenreEditor";
+import CompressionDialog from "./CompressionDialog";
+import { formatBytes } from "@/lib/format";
 
 export default function RightPanel() {
   const { t } = useTranslation();
@@ -17,6 +19,10 @@ export default function RightPanel() {
   const [posterSrc, setPosterSrc] = useState<string | null>(null);
   const [unlinkConfirm, setUnlinkConfirm] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
+  const [totalBytes, setTotalBytes] = useState<number | null>(null);
+  const [hasOriginals, setHasOriginals] = useState(false);
+  const [cleaningUp, setCleaningUp] = useState(false);
+  const [compressOpen, setCompressOpen] = useState(false);
 
   useEffect(() => {
     setRenaming(false);
@@ -42,9 +48,22 @@ export default function RightPanel() {
         .catch(() => {
           /* non-fatal: keep the fallback */
         });
+      // Folder size + originals presence (best-effort).
+      setTotalBytes(null);
+      setHasOriginals(false);
+      void api
+        .mediaTotalBytes(id)
+        .then(setTotalBytes)
+        .catch(() => setTotalBytes(0));
+      void api
+        .hasOriginalBackups(id)
+        .then(setHasOriginals)
+        .catch(() => setHasOriginals(false));
     } else {
       setGenres([]);
       setPosterSrc(null);
+      setTotalBytes(null);
+      setHasOriginals(false);
     }
   }, [selection]);
 
@@ -154,6 +173,10 @@ export default function RightPanel() {
               <dd>{row.runtime_minutes} min</dd>
             </>
           )}
+          <dt className="text-neutral-500">{t("media.size", "Size")}</dt>
+          <dd>
+            {totalBytes != null ? formatBytes(totalBytes) : "…"}
+          </dd>
           <dt className="text-neutral-500">Path</dt>
           <dd className="break-all text-xs">
             {baseUrl}
@@ -241,7 +264,50 @@ export default function RightPanel() {
           >
             {t("actions.unlink", "Unlink")}
           </button>
+          <button
+            className="rounded border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-800"
+            onClick={() => setCompressOpen(true)}
+          >
+            {t("actions.compress", "Compress")}
+          </button>
+          {hasOriginals && (
+            <button
+              disabled={cleaningUp}
+              className="rounded border border-yellow-800/60 px-3 py-1.5 text-sm text-yellow-200 hover:bg-yellow-900/30 disabled:opacity-40"
+              onClick={async () => {
+                setCleaningUp(true);
+                setError(null);
+                try {
+                  await api.cleanupOriginalsFor(row.id);
+                  const fresh = await api.mediaTotalBytes(row.id);
+                  setTotalBytes(fresh);
+                  setHasOriginals(false);
+                } catch (e) {
+                  setError((e as Error).message);
+                } finally {
+                  setCleaningUp(false);
+                }
+              }}
+            >
+              {t("actions.clean_up_originals", "Clean up originals")}
+            </button>
+          )}
         </div>
+
+        {compressOpen && (
+          <CompressionDialog
+            media={row}
+            totalBytes={totalBytes ?? 0}
+            onClose={() => setCompressOpen(false)}
+            onDone={async () => {
+              const fresh = await api.mediaTotalBytes(row.id);
+              setTotalBytes(fresh);
+              const has = await api.hasOriginalBackups(row.id);
+              setHasOriginals(has);
+              await refresh();
+            }}
+          />
+        )}
 
         {unlinkConfirm && (
           <div className="rounded border border-red-900/60 bg-red-900/20 p-3 text-sm text-red-100">
