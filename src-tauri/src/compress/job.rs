@@ -278,49 +278,76 @@ pub async fn run_job(
         let stderr = child.stderr.take().expect("piped stderr");
         let mut reader = BufReader::new(stderr).lines();
         let mut tick = ProgressTick::default();
+        let mut killed = false;
 
         loop {
-            tokio::select! {
-                line = reader.next_line() => {
-                    match line {
-                        Ok(Some(l)) => {
-                            apply_progress_line(&l, &mut tick);
-                            if let (Some(pos), Some(speed)) = (tick.time_position_seconds, tick.speed) {
-                                let eta_file = estimate_eta_seconds(pos, duration, speed);
-                                reporter.progress(&JobProgress {
-                                    job_id: job_id.clone(),
-                                    current_file_index: idx,
-                                    total_files,
-                                    current_file_name: file_name.clone(),
-                                    current_file_duration_seconds: duration,
-                                    current_file_position_seconds: pos,
-                                    current_file_speed: Some(speed),
-                                    eta_current_file_seconds: eta_file,
-                                    // crude total-ETA estimate: assume remaining
-                                    // files take roughly the same wall time as the
-                                    // current one.
-                                    eta_total_seconds: eta_file.map(|s| {
-                                        let remaining = total_files.saturating_sub(idx + 1) as f64;
-                                        s * (1.0 + remaining)
-                                    }),
-                                    state: JobState::Encoding,
-                                    bytes_saved: total_original_bytes as i64 - total_compressed_bytes as i64,
-                                });
-                            }
-                        }
-                        Ok(None) => break,
-                        Err(_) => break,
+            // Cancellation is checked at the top of every loop so a flag
+            // set BEFORE the next ffmpeg output line is honoured.
+            if cancel.is_cancelled() {
+                let _ = child.start_kill();
+                killed = true;
+                break;
+            }
+            // Wait for the next progress line, but with a 200 ms cap so
+            // cancellation is also checked regularly even when ffmpeg
+            // stalls on disk I/O. (The previous tokio::select!
+            // re-created the sleep future each iteration; ffmpeg's
+            // continuous output meant the timer never reached the
+            // cancel-check branch.)
+            let line_result = tokio::time::timeout(
+                std::time::Duration::from_millis(200),
+                reader.next_line(),
+            )
+            .await;
+            match line_result {
+                Ok(Ok(Some(l))) => {
+                    apply_progress_line(&l, &mut tick);
+                    if let (Some(pos), Some(speed)) =
+                        (tick.time_position_seconds, tick.speed)
+                    {
+                        let eta_file = estimate_eta_seconds(pos, duration, speed);
+                        reporter.progress(&JobProgress {
+                            job_id: job_id.clone(),
+                            current_file_index: idx,
+                            total_files,
+                            current_file_name: file_name.clone(),
+                            current_file_duration_seconds: duration,
+                            current_file_position_seconds: pos,
+                            current_file_speed: Some(speed),
+                            eta_current_file_seconds: eta_file,
+                            // crude total-ETA estimate: assume the
+                            // remaining files take roughly the same wall
+                            // time as the current one.
+                            eta_total_seconds: eta_file.map(|s| {
+                                let remaining =
+                                    total_files.saturating_sub(idx + 1) as f64;
+                                s * (1.0 + remaining)
+                            }),
+                            state: JobState::Encoding,
+                            bytes_saved: total_original_bytes as i64
+                                - total_compressed_bytes as i64,
+                        });
                     }
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {
-                    if cancel.is_cancelled() {
-                        let _ = child.start_kill();
-                        break;
-                    }
+                Ok(Ok(None)) => break,  // EOF: ffmpeg exited
+                Ok(Err(_)) => break,     // I/O error reading stderr
+                Err(_) => {
+                    // Timeout: loop back to re-check cancel.
+                    continue;
                 }
             }
         }
+
+        // Belt-and-suspenders: even if we exited cleanly, if a cancel
+        // raced in just before EOF make sure the child is dead before
+        // we wait on it.
+        if cancel.is_cancelled() && !killed {
+            let _ = child.start_kill();
+            killed = true;
+        }
+
         let status = child.wait().await;
+        let _ = killed; // mark as used regardless of build cfg
 
         if cancel.is_cancelled() {
             let _ = std::fs::remove_file(&temp);
