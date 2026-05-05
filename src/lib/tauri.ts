@@ -94,6 +94,8 @@ export const api = {
     invoke<string | null>("get_poster_url", { mediaId }),
   listSeries: () => invoke<MediaRow[]>("list_series"),
   listMovieGenres: () => invoke<GenreRow[]>("list_movie_genres"),
+  listMovieGenresInUse: () =>
+    invoke<GenreRow[]>("list_movie_genres_in_use"),
   updateGenreTranslation: (genreId: number, translated: string | null) =>
     invoke<void>("update_genre_translation", { genreId, translated }),
   updateRootLabel: (kind: MediaType, label: string) =>

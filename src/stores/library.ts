@@ -19,7 +19,12 @@ export type LeftSelection =
 interface LibraryState {
   config: ConfigDto | null;
   uncatalogued: UncataloguedItem[];
+  /** Every movie genre known locally — used by SettingsModal so the
+   *  user can translate genres they may not yet have movies for. */
   movieGenres: GenreRow[];
+  /** Subset of movieGenres that is the primary genre of at least one
+   *  linked movie — used by LeftPanel to avoid empty buckets. */
+  movieGenresInUse: GenreRow[];
   series: MediaRow[];
   currentList: MediaRow[];
   leftSelection: LeftSelection;
@@ -43,6 +48,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   config: null,
   uncatalogued: [],
   movieGenres: [],
+  movieGenresInUse: [],
   series: [],
   currentList: [],
   leftSelection: { kind: "uncatalogued" },
@@ -72,14 +78,16 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     if (!get().config?.initialized) return;
     set({ loading: true, error: null });
     try {
-      const [scan, movieGenres, series] = await Promise.all([
+      const [scan, movieGenres, movieGenresInUse, series] = await Promise.all([
         api.scanNow(),
         api.listMovieGenres(),
+        api.listMovieGenresInUse(),
         api.listSeries(),
       ]);
       set({
         uncatalogued: scan.uncatalogued,
         movieGenres,
+        movieGenresInUse,
         series,
       });
       // Re-fetch the current list view.

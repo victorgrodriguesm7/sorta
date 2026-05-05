@@ -55,6 +55,7 @@ pub fn run() {
             commands::library::get_poster_url,
             commands::library::list_series,
             commands::library::list_movie_genres,
+            commands::library::list_movie_genres_in_use,
             commands::library::update_genre_translation,
             commands::library::update_root_label,
             commands::tmdb_cmds::tmdb_search,

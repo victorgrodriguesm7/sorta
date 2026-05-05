@@ -20,7 +20,8 @@ beforeEach(() => {
       { folder: "/x", video_filename: "a.mkv", kind: "movie" },
       { folder: "/y", video_filename: "b.mkv", kind: "movie" },
     ],
-    movieGenres: [
+    movieGenres: [],
+    movieGenresInUse: [
       {
         id: 28,
         media_type: "movie",

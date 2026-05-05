@@ -14,11 +14,14 @@ function isSameSelection(a: LeftSelection, b: LeftSelection): boolean {
 
 export default function LeftPanel() {
   const { t } = useTranslation();
-  const { uncatalogued, movieGenres, leftSelection, selectLeft } = useLibrary();
+  const { uncatalogued, movieGenresInUse, leftSelection, selectLeft } =
+    useLibrary();
 
-  // Visually merge genres that share the same display name.
+  // Only show genres that are the primary for at least one linked
+  // movie (the backend pre-filters), then visually merge ones that
+  // share the same display name.
   const merged: { displayName: string; genres: GenreRow[] }[] = [];
-  for (const g of movieGenres) {
+  for (const g of movieGenresInUse) {
     const display = g.translated_name ?? g.canonical_name;
     const existing = merged.find(
       (m) => m.displayName.toLowerCase() === display.toLowerCase(),

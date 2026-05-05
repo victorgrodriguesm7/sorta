@@ -122,6 +122,33 @@ pub async fn list_movie_genres(state: State<'_, AppState>) -> AppResult<Vec<Genr
     list_genres(&pool, MediaType::Movie).await
 }
 
+/// List only the movie genres that are the **primary** genre of at
+/// least one linked movie. Used by the LeftPanel to avoid showing
+/// empty buckets for genres pulled from TMDB but never picked.
+#[tauri::command]
+pub async fn list_movie_genres_in_use(
+    state: State<'_, AppState>,
+) -> AppResult<Vec<GenreRow>> {
+    let pool = {
+        let s = state.read().await;
+        s.db.clone()
+            .ok_or_else(|| AppError::Other("DB not initialized".into()))?
+    };
+    sqlx::query_as::<_, GenreRow>(
+        "SELECT DISTINCT g.id, g.media_type, g.canonical_name, g.translated_name \
+         FROM genres g \
+         JOIN media_genres mg ON mg.genre_id = g.id AND mg.media_type = g.media_type \
+         JOIN media       m  ON m.id = mg.media_id \
+         WHERE g.media_type = 'movie' \
+           AND m.media_type  = 'movie' \
+           AND mg.is_primary = 1 \
+         ORDER BY COALESCE(g.translated_name, g.canonical_name) COLLATE NOCASE",
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| AppError::Other(format!("list_movie_genres_in_use: {e}")))
+}
+
 /// Set a genre's translated name. If the new translation collides with
 /// another genre's display name, the underlying folders are physically
 /// merged on disk.
