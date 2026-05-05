@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useLibrary } from "@/stores/library";
 import { api } from "@/lib/tauri";
+import { formatBytes } from "@/lib/format";
 
 interface Props {
   onClose: () => void;
@@ -19,6 +20,31 @@ export default function SettingsModal({ onClose }: Props) {
   );
   const [seasonLabel, setSeasonLabel] = useState("Season");
   const [seasonSaving, setSeasonSaving] = useState(false);
+  const [backingUp, setBackingUp] = useState(false);
+  const [backupNote, setBackupNote] = useState<string | null>(null);
+
+  const runBackup = async () => {
+    setError(null);
+    setBackupNote(null);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const dest = await saveDialog({
+      title: "Backup database",
+      defaultPath: `sorta-backup-${stamp}.db`,
+      filters: [{ name: "SQLite", extensions: ["db"] }],
+    });
+    if (typeof dest !== "string") return;
+    setBackingUp(true);
+    try {
+      const r = await api.backupDatabase(dest);
+      setBackupNote(
+        `${r.destination} (${formatBytes(r.bytes_written)})`,
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBackingUp(false);
+    }
+  };
 
   const pickHd = async () => {
     setError(null);
@@ -161,6 +187,32 @@ export default function SettingsModal({ onClose }: Props) {
                 {t("actions.save")}
               </button>
             </div>
+          </section>
+
+          <section className="mb-6 space-y-2">
+            <div className="text-xs uppercase tracking-wide text-neutral-500">
+              {t("settings.backup", "Database backup")}
+            </div>
+            <p className="text-xs text-neutral-500">
+              {t(
+                "settings.backup_blurb",
+                "Saves a clean copy of <HD>/sorta.db (genres, links, translations, posters metadata) anywhere you choose. Movie files themselves are not included.",
+              )}
+            </p>
+            <button
+              onClick={runBackup}
+              disabled={backingUp}
+              className="rounded bg-accent px-3 py-2 text-sm text-white hover:bg-accent-hover disabled:opacity-40"
+            >
+              {backingUp
+                ? t("settings.backup_running", "Backing up…")
+                : t("settings.backup_now", "Backup database…")}
+            </button>
+            {backupNote && (
+              <div className="break-all rounded bg-neutral-800/60 px-2 py-1 text-xs text-neutral-300">
+                ✔ {backupNote}
+              </div>
+            )}
           </section>
 
           <section className="space-y-2">

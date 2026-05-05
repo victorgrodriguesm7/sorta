@@ -76,6 +76,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn vacuum_into_produces_a_usable_copy() {
+        // The backup command shells out to `VACUUM INTO`. Lock that
+        // behaviour in: starting from a fresh DB with the seeded
+        // settings, the backup file should itself be a valid SQLite
+        // DB containing the same rows.
+        let tmp = TempDir::new().unwrap();
+        let live = tmp.path().join("live.db");
+        let pool = open(&live).await.unwrap();
+        // Bump the schema with a row so we know data round-trips.
+        sqlx::query("INSERT INTO settings(key, value) VALUES (?, ?)")
+            .bind("backup_marker")
+            .bind("hello")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let dest = tmp.path().join("snapshot.db");
+        let dest_str = dest.to_string_lossy().replace('\'', "''");
+        sqlx::query(&format!("VACUUM INTO '{dest_str}'"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(dest.is_file());
+
+        // Open the snapshot and verify our marker survived.
+        let restored = open(&dest).await.unwrap();
+        let row: (String,) =
+            sqlx::query_as("SELECT value FROM settings WHERE key = 'backup_marker'")
+                .fetch_one(&restored)
+                .await
+                .unwrap();
+        assert_eq!(row.0, "hello");
+    }
+
+    #[tokio::test]
     async fn open_is_idempotent() {
         let tmp = TempDir::new().unwrap();
         let db_path = tmp.path().join("sorta.db");

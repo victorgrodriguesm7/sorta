@@ -94,6 +94,54 @@ pub async fn set_api_key(
     })
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct BackupResult {
+    pub destination: PathBuf,
+    pub bytes_written: u64,
+}
+
+/// Create a clean, compacted backup of the live SQLite DB at
+/// `destination`. Uses `VACUUM INTO`, which:
+///   - takes a brief shared lock so concurrent reads aren't blocked
+///   - produces a single-file copy that's already defragmented
+///   - is safe to run while the pool is open
+///
+/// The destination is created/overwritten atomically (SQLite refuses
+/// to write to an existing file, so we delete first if present).
+#[tauri::command]
+pub async fn backup_database(
+    state: State<'_, AppState>,
+    destination: PathBuf,
+) -> AppResult<BackupResult> {
+    let pool = {
+        let s = state.read().await;
+        s.db.clone()
+            .ok_or_else(|| AppError::Other("DB not initialized".into()))?
+    };
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent).map_err(AppError::from)?;
+    }
+    if destination.exists() {
+        std::fs::remove_file(&destination).map_err(AppError::from)?;
+    }
+
+    // VACUUM INTO doesn't accept a bound parameter on most SQLite
+    // versions — the path must be a string literal. We escape the
+    // user-supplied path defensively.
+    let dest_str = destination.to_string_lossy().replace('\'', "''");
+    let sql = format!("VACUUM INTO '{dest_str}'");
+    sqlx::query(&sql)
+        .execute(&pool)
+        .await
+        .map_err(|e| AppError::Other(format!("vacuum into: {e}")))?;
+
+    let bytes = std::fs::metadata(&destination).map(|m| m.len()).unwrap_or(0);
+    Ok(BackupResult {
+        destination,
+        bytes_written: bytes,
+    })
+}
+
 /// Persist the user's preferred compression encoder so the dialog
 /// doesn't auto-pick a different one (e.g. NVENC) on the next launch.
 #[tauri::command]

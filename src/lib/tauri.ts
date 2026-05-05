@@ -88,6 +88,11 @@ export const api = {
     invoke<void>("set_ui_language", { language }),
   setCompressionCodec: (codec: Codec) =>
     invoke<void>("set_compression_codec", { codec }),
+  backupDatabase: (destination: string) =>
+    invoke<{ destination: string; bytes_written: number }>(
+      "backup_database",
+      { destination },
+    ),
   scanNow: () => invoke<ScanResult>("scan_now"),
   listMoviesByGenre: (genreId: number) =>
     invoke<MediaRow[]>("list_movies_by_genre", { genreId }),

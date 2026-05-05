@@ -51,6 +51,7 @@ pub fn run() {
             commands::config_cmds::set_api_key,
             commands::config_cmds::set_ui_language,
             commands::config_cmds::set_compression_codec,
+            commands::config_cmds::backup_database,
             commands::library::scan_now,
             commands::library::list_movies_by_genre,
             commands::library::list_movies_by_genres,
