@@ -82,6 +82,25 @@ class MediaRepository internal constructor(
         return db.rawQuery(sql, emptyArray()).use { it.toMediaRows() }
     }
 
+    /**
+     * Case-insensitive substring match against `title` and
+     * `original_title`. Returns rows of either media type, sorted by
+     * display title. Empty / blank queries return an empty list.
+     */
+    fun search(query: String): List<MediaRow> {
+        if (query.isBlank()) return emptyList()
+        val pattern = "%${query.trim().sqlLikeEscape()}%"
+        val sql = """
+            SELECT id, tmdb_id, media_type, title, original_title,
+                   runtime_minutes, poster_path, poster_url, folder_path
+            FROM media
+            WHERE title LIKE ? ESCAPE '\'
+               OR original_title LIKE ? ESCAPE '\'
+            ORDER BY title COLLATE NOCASE
+        """.trimIndent()
+        return db.rawQuery(sql, arrayOf(pattern, pattern)).use { it.toMediaRows() }
+    }
+
     /** Read a single `settings` value, or null if the key is unknown. */
     fun setting(key: String): String? {
         return db.rawQuery("SELECT value FROM settings WHERE key = ?", arrayOf(key)).use { c ->
@@ -108,6 +127,10 @@ class MediaRepository internal constructor(
         }
     }
 }
+
+/** Escape `%`, `_`, and `\` so a user query can't break out of LIKE. */
+private fun String.sqlLikeEscape(): String =
+    replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 private fun android.database.Cursor.getStringOrNull(index: Int): String? =
     if (isNull(index)) null else getString(index)

@@ -46,6 +46,9 @@ class BrowseFragment : BrowseSupportFragment() {
         onItemViewClickedListener = OnItemViewClickedListener { _, item, _, _ ->
             if (item is MediaRow) launchPlayback(item)
         }
+        setOnSearchClickedListener {
+            startActivity(Intent(requireContext(), SearchActivity::class.java))
+        }
 
         loadCatalog()
     }
