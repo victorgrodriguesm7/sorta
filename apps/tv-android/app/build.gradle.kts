@@ -63,4 +63,5 @@ dependencies {
     implementation(libs.glide)
 
     testImplementation(libs.junit)
+    testImplementation(libs.org.json)
 }

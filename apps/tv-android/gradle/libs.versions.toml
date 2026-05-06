@@ -3,6 +3,9 @@
 agp = "8.7.2"
 kotlin = "1.9.25"
 junit = "4.13.2"
+# org.json is part of android.jar at runtime; we pull the standalone
+# artifact only for JVM unit tests so they don't need an emulator.
+orgJson = "20240303"
 
 # AndroidX runtime
 androidxCore = "1.13.1"
@@ -23,6 +26,7 @@ androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtim
 glide = { module = "com.github.bumptech.glide:glide", version.ref = "glide" }
 
 junit = { module = "junit:junit", version.ref = "junit" }
+org-json = { module = "org.json:json", version.ref = "orgJson" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
