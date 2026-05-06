@@ -204,10 +204,15 @@ pub async fn initialize_with(
 
     {
         let mut s = state.write().await;
-        s.hd_root = Some(hd_root);
-        s.db = Some(db);
+        s.hd_root = Some(hd_root.clone());
+        s.db = Some(db.clone());
         s.tmdb = tmdb;
         s.watcher = Some(handle);
     }
+
+    // Refresh the manifest companion file alongside sorta.db so any
+    // external reader (TV-side client) sees a current snapshot.
+    crate::manifest::write_best_effort(&hd_root, &db).await;
+
     Ok(())
 }

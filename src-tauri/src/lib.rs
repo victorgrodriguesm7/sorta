@@ -15,6 +15,7 @@ pub mod compress;
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod manifest;
 pub mod organizer;
 pub mod scanner;
 pub mod state;

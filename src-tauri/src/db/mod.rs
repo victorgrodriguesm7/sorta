@@ -19,6 +19,13 @@ pub use genres::*;
 pub use media::*;
 pub use settings::*;
 
+/// Bumped whenever a new migration is added that an external reader
+/// could not be expected to handle. The TV-side reader compares this
+/// against the value stored in the `settings.schema_version` row and
+/// refuses to open the DB if the on-disk number is newer than what
+/// it knows.
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+
 /// Open (or create) the SQLite DB at the given path and run migrations.
 pub async fn open(db_path: &Path) -> AppResult<SqlitePool> {
     let db_path_str = db_path
@@ -42,6 +49,12 @@ pub async fn open(db_path: &Path) -> AppResult<SqlitePool> {
         .run(&pool)
         .await
         .map_err(|e| AppError::Other(format!("migrate: {e}")))?;
+
+    // Always overwrite the schema_version row with the constant,
+    // regardless of what was on disk. This keeps it accurate even if
+    // the user downgraded to an older binary in between (older binary
+    // would have left a higher number behind otherwise).
+    set_setting(&pool, "schema_version", &CURRENT_SCHEMA_VERSION.to_string()).await?;
 
     Ok(pool)
 }
@@ -73,6 +86,18 @@ mod tests {
         assert_eq!(row.0, "Series");
 
         assert!(db_path.exists());
+    }
+
+    #[tokio::test]
+    async fn open_writes_current_schema_version() {
+        let tmp = TempDir::new().unwrap();
+        let pool = open(&tmp.path().join("sorta.db")).await.unwrap();
+        let row: (String,) =
+            sqlx::query_as("SELECT value FROM settings WHERE key = 'schema_version'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(row.0, CURRENT_SCHEMA_VERSION.to_string());
     }
 
     #[tokio::test]
@@ -121,6 +146,6 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(row.0, 3);
+        assert_eq!(row.0, 4); // movies_label, series_label, season_label, schema_version
     }
 }

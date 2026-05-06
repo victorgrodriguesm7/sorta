@@ -208,6 +208,8 @@ pub async fn link_media(state: State<'_, AppState>, args: LinkArgs) -> AppResult
         .collect();
     set_media_genres(&pool, media_id, media_type, &genre_pairs).await?;
 
+    crate::manifest::write_best_effort(&hd_root, &pool).await;
+
     Ok(LinkResult {
         media_id,
         folder_path: target_folder,
@@ -658,6 +660,8 @@ pub async fn link_as_series(
         moved += 1;
     }
 
+    crate::manifest::write_best_effort(&hd_root, &pool).await;
+
     Ok(LinkSeriesResult {
         media_id,
         series_folder,
@@ -838,6 +842,8 @@ pub async fn unlink_media(
             }
         }
     }
+
+    crate::manifest::write_best_effort(&hd_root, &pool).await;
 
     Ok(UnlinkResult {
         removed_media_id: args.media_id,
