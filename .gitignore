@@ -22,10 +22,13 @@ pnpm-debug.log*
 *.sln
 *.sw?
 
-# Rust / Tauri
-src-tauri/target/
-src-tauri/gen/schemas/
+# Rust / Tauri (patterns without a leading slash match at any depth,
+# so this covers apps/<name>/src-tauri/target etc.)
 target/
+gen/schemas/
+
+# Top-level helpers
+tsconfig.tsbuildinfo
 
 # Env / secrets
 .env
@@ -38,3 +41,7 @@ coverage/
 
 # OS
 Thumbs.db
+
+# Tooling-local state (per-machine, never committed)
+.claude/
+skills-lock.json

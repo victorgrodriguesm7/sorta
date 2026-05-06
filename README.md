@@ -122,9 +122,12 @@ tables is non-breaking; renaming or repurposing existing columns is.
 
 ## Development
 
+All commands run from the **repo root**. The pnpm workspace
+(`pnpm-workspace.yaml`) routes scripts through `apps/desktop`.
+
 ```bash
-pnpm install
-pnpm tauri dev
+pnpm install              # one install at the workspace root
+pnpm tauri:dev            # full Tauri dev cycle (Vite + Rust)
 ```
 
 First boot opens a setup screen. Settings → pick the hard drive root,
@@ -132,45 +135,65 @@ paste the TMDB API key. The scan starts automatically.
 
 ```bash
 # Tests
-cd src-tauri && cargo test --lib   # 87 Rust unit + integration tests
-pnpm test                          # 8 frontend tests
+pnpm test                 # 8 Vitest tests (frontend)
+pnpm test:rust            # 87 cargo tests (backend)
 
 # TypeScript typecheck only
-pnpm exec tsc -b --noEmit
+pnpm typecheck
 
 # Production build (Vite + cargo build)
 pnpm build
+```
+
+If you need to drop into the desktop package directly:
+
+```bash
+cd apps/desktop && pnpm tauri dev
 ```
 
 ---
 
 ## Project layout
 
+Monorepo. The desktop app is the only published artefact today; a TV
+client (`apps/tv-android/`, native Kotlin + Leanback) is the next
+planned addition. Both apps would share only the on-disk contract
+spelled out in [`docs/disk-format.md`](docs/disk-format.md), so they
+can evolve independently.
+
 ```
 sorta/
-├── src/                           # React frontend
-│   ├── components/
-│   ├── lib/                       # tauri command wrappers, formatters
-│   ├── stores/                    # zustand
-│   └── i18n/locales/
-├── src-tauri/                     # Rust backend
-│   ├── src/
-│   │   ├── commands/              # #[tauri::command] handlers
-│   │   ├── compress/              # ffmpeg helpers + job runner
-│   │   ├── db/                    # sqlx migrations + repos
-│   │   ├── organizer/             # pure naming/plan/sidecar logic
-│   │   ├── scanner/               # walker + watcher
-│   │   ├── tmdb/                  # http client
-│   │   ├── manifest.rs            # <HD>/manifest.json writer
-│   │   └── ...
-│   └── migrations/                # 0001_init, 0002_season_label, 0003_schema_version
-└── docs/
-    └── disk-format.md             # external-reader contract
+├── apps/
+│   └── desktop/
+│       ├── src/                       # React frontend
+│       │   ├── components/
+│       │   ├── lib/                   # tauri command wrappers, formatters
+│       │   ├── stores/                # zustand
+│       │   └── i18n/locales/
+│       ├── src-tauri/                 # Rust backend
+│       │   ├── src/
+│       │   │   ├── commands/          # #[tauri::command] handlers
+│       │   │   ├── compress/          # ffmpeg helpers + job runner
+│       │   │   ├── db/                # sqlx migrations + repos
+│       │   │   ├── organizer/         # pure naming/plan/sidecar logic
+│       │   │   ├── scanner/           # walker + watcher
+│       │   │   ├── tmdb/              # http client
+│       │   │   ├── manifest.rs        # <HD>/manifest.json writer
+│       │   │   └── ...
+│       │   └── migrations/            # 0001_init, 0002_season_label, 0003_schema_version
+│       └── package.json               # @sorta/desktop
+├── docs/
+│   └── disk-format.md                 # external-reader contract
+├── package.json                       # workspace root, passthrough scripts
+├── pnpm-workspace.yaml
+├── PLAN.md
+└── README.md
 ```
 
-A monorepo restructure into `apps/desktop/` is planned ahead of the TV
-client work; the disk format doc is the contract that makes that client
-buildable independently.
+The two toolchains (`pnpm`/`vite` for the desktop frontend, `cargo`
+for the backend) keep their own build systems — the workspace just
+routes pnpm commands and shares a single `node_modules` symlink
+forest. No Nx/Turborepo/Bazel needed.
 
 ---
 
