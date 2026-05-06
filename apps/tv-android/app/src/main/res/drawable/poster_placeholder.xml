@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Solid-fill placeholder shown while Glide is loading a poster, and
+  for any media row that lacks a local poster file *and* a TMDB CDN
+  fallback URL. Indigo-on-near-black mirrors the desktop accent.
+-->
+<shape
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/card_background" />
+    <stroke
+        android:width="1dp"
+        android:color="@color/accent" />
+</shape>

@@ -5,4 +5,7 @@
     <color name="accent">#FF6366F1</color>
     <color name="background_dark">#FF0A0A0A</color>
     <color name="surface_dark">#FF1A1A1A</color>
+    <!-- Background painted on a poster card while Glide is loading,
+         and shown for media rows with no poster at all. -->
+    <color name="card_background">#FF1A1A1A</color>
 </resources>
