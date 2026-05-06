@@ -60,6 +60,7 @@ dependencies {
     implementation(libs.androidx.leanback)
     implementation(libs.androidx.recyclerview)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.documentfile)
     implementation(libs.glide)
 
     testImplementation(libs.junit)
