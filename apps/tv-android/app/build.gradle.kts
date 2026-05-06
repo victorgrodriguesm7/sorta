@@ -61,6 +61,7 @@ dependencies {
     implementation(libs.androidx.recyclerview)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.documentfile)
+    implementation(libs.kotlinx.coroutines.android)
     implementation(libs.glide)
 
     testImplementation(libs.junit)

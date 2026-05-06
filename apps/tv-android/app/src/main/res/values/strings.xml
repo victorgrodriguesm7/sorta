@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Sorta TV</string>
+    <!-- Header label for the row of catalogued TV series. Movie rows
+         use the per-genre translated label from the desktop, so they
+         live in the database, not here. -->
+    <string name="row_series">Series</string>
 </resources>
