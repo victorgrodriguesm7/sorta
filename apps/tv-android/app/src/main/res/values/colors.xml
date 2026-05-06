@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors the desktop accent (indigo-500) so both surfaces feel
+         like the same product. -->
+    <color name="accent">#FF6366F1</color>
+    <color name="background_dark">#FF0A0A0A</color>
+    <color name="surface_dark">#FF1A1A1A</color>
+</resources>
