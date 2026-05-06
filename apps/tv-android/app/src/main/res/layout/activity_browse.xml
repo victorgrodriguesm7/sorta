@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Hosts the Leanback BrowseSupportFragment. The fragment renders the
+  full-screen browse UI; this layout exists only to give it a frame.
+-->
+<androidx.fragment.app.FragmentContainerView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/browse_fragment"
+    android:name="dev.sorta.tv.ui.BrowseFragment"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent" />
