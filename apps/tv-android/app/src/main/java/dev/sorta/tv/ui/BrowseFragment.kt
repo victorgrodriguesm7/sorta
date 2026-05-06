@@ -1,17 +1,23 @@
 package dev.sorta.tv.ui
 
 import android.os.Bundle
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.leanback.app.BrowseSupportFragment
 import androidx.leanback.widget.ArrayObjectAdapter
 import androidx.leanback.widget.HeaderItem
 import androidx.leanback.widget.ListRow
 import androidx.leanback.widget.ListRowPresenter
+import androidx.leanback.widget.OnItemViewClickedListener
 import androidx.lifecycle.lifecycleScope
 import dev.sorta.tv.R
 import dev.sorta.tv.data.GenreRow
 import dev.sorta.tv.data.MediaRepository
 import dev.sorta.tv.data.MediaRow
 import dev.sorta.tv.data.MediaType
+import dev.sorta.tv.playback.PlaybackIntent
+import dev.sorta.tv.playback.PlaybackResolver
 import dev.sorta.tv.usb.UsbDriveLocator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -27,6 +33,7 @@ import java.io.File
 class BrowseFragment : BrowseSupportFragment() {
 
     private lateinit var rowsAdapter: ArrayObjectAdapter
+    private var driveRoot: File? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,7 +43,32 @@ class BrowseFragment : BrowseSupportFragment() {
         rowsAdapter = ArrayObjectAdapter(ListRowPresenter())
         adapter = rowsAdapter
 
+        onItemViewClickedListener = OnItemViewClickedListener { _, item, _, _ ->
+            if (item is MediaRow) launchPlayback(item)
+        }
+
         loadCatalog()
+    }
+
+    private fun launchPlayback(media: MediaRow) {
+        val root = driveRoot ?: return
+        val file = PlaybackResolver.resolve(root, media)
+        if (file == null) {
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.playback_no_file, media.title),
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        val request = PlaybackIntent.build(file)
+        val play = Intent(request.action)
+            .setDataAndType(Uri.parse(request.uri), request.mimeType)
+            .addFlags(request.flags)
+        // Wrap in createChooser so the user can pick VLC / MX Player /
+        // whatever they have installed instead of being silently
+        // routed to whichever player claims highest priority.
+        startActivity(Intent.createChooser(play, getString(R.string.playback_chooser_title)))
     }
 
     private fun loadCatalog() {
@@ -63,7 +95,11 @@ class BrowseFragment : BrowseSupportFragment() {
 
     private fun renderRows(payload: CatalogPayload?) {
         rowsAdapter.clear()
-        if (payload == null) return
+        if (payload == null) {
+            driveRoot = null
+            return
+        }
+        driveRoot = payload.driveRoot
 
         val cardPresenter = CardPresenter(payload.driveRoot)
         var headerId = 0L
