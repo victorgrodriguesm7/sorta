@@ -1,7 +1,7 @@
 [versions]
 # Toolchains
 agp = "8.7.2"
-kotlin = "1.9.25"
+kotlin = "2.0.21"
 junit = "4.13.2"
 # org.json is part of android.jar at runtime; we pull the standalone
 # artifact only for JVM unit tests so they don't need an emulator.
