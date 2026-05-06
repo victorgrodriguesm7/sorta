@@ -18,7 +18,6 @@ import dev.sorta.tv.data.MediaRow
 import dev.sorta.tv.data.MediaType
 import dev.sorta.tv.playback.PlaybackIntent
 import dev.sorta.tv.playback.PlaybackResolver
-import dev.sorta.tv.usb.UsbDriveLocator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -85,14 +84,15 @@ class BrowseFragment : BrowseSupportFragment() {
     }
 
     private suspend fun buildRows(): CatalogPayload? {
-        val driveRoot = UsbDriveLocator.locate().firstOrNull() ?: return null
-        MediaRepository.open(File(driveRoot, "sorta.db")).use { repo ->
+        val drive = requireArguments().getString(ARG_DRIVE_ROOT)?.let(::File)
+            ?: return null
+        MediaRepository.open(File(drive, "sorta.db")).use { repo ->
             val series = repo.listSeries()
             val movieGenres = repo.listGenres(MediaType.MOVIE)
             val moviesByGenre = movieGenres.associateWith { genre ->
                 repo.listMoviesByGenre(genre.id)
             }
-            return CatalogPayload(driveRoot, series, movieGenres, moviesByGenre)
+            return CatalogPayload(drive, series, movieGenres, moviesByGenre)
         }
     }
 
@@ -132,4 +132,12 @@ class BrowseFragment : BrowseSupportFragment() {
         val genres: List<GenreRow>,
         val moviesByGenre: Map<GenreRow, List<MediaRow>>,
     )
+
+    companion object {
+        private const val ARG_DRIVE_ROOT = "drive_root"
+
+        fun newInstance(driveRoot: File): BrowseFragment = BrowseFragment().apply {
+            arguments = Bundle().apply { putString(ARG_DRIVE_ROOT, driveRoot.absolutePath) }
+        }
+    }
 }
