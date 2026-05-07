@@ -11,7 +11,7 @@ import java.io.File
  * Per `docs/disk-format.md#reading-a-single-linked-file` the playback
  * shape on Android 7.1.1 is:
  *
- *   Intent(ACTION_VIEW).setDataAndType(Uri.fromFile(file), "video/*")
+ *   Intent(ACTION_VIEW).setDataAndType(Uri.fromFile(file), "video/ *")
  *
  * VLC and MX Player accept `file://` URIs directly on this API level;
  * if a stricter player ever needs FileProvider URIs we'll layer that

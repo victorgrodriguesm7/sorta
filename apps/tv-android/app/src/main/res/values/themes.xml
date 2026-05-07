@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Inherit the AndroidX Leanback dark theme (built for TV remotes
-         out of the box) and tint it with our accent. -->
-    <style name="Theme.Leanback" parent="Theme.Leanback">
+    <!-- Local app theme. Inherits AndroidX Leanback's dark TV theme and
+         tints the window background with our palette. The parent name
+         is `Theme.Leanback` from the leanback library; we deliberately
+         use a different local name so this style doesn't shadow it. -->
+    <style name="Theme.SortaTv" parent="Theme.Leanback">
         <item name="android:windowBackground">@color/background_dark</item>
     </style>
 </resources>

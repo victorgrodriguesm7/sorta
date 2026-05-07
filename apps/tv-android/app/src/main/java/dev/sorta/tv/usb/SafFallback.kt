@@ -10,7 +10,7 @@ import java.io.File
 
 /**
  * Storage Access Framework fallback for vendor builds where direct
- * `/storage/usb*/` access is denied. Flow:
+ * `/storage/usb/` access is denied. Flow:
  *
  *  1. UI builds [openDocumentTreeIntent] and starts it for result.
  *  2. On success, [adoptTree] persists the tree URI grant and locates
