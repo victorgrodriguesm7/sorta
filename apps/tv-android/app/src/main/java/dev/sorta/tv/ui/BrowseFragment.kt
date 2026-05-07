@@ -33,8 +33,10 @@ class BrowseFragment : BrowseSupportFragment() {
 
     private lateinit var rowsAdapter: ArrayObjectAdapter
     private var driveRoot: File? = null
-    private val playerLauncher: PlayerLauncher by lazy {
-        PlayerLauncher(this, WatchHistory.get(requireContext()))
+    // Eager init (not `by lazy`) so registerForActivityResult fires
+    // before the fragment reaches CREATED — see PlayerLauncher kdoc.
+    private val playerLauncher = PlayerLauncher(this) {
+        WatchHistory.get(requireContext())
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

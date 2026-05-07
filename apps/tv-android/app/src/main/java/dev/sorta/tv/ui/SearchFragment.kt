@@ -36,8 +36,8 @@ class SearchFragment :
     private lateinit var resultsAdapter: ArrayObjectAdapter
     private var driveRoot: File? = null
     private var pendingQuery: Job? = null
-    private val playerLauncher: PlayerLauncher by lazy {
-        PlayerLauncher(this, WatchHistory.get(requireContext()))
+    private val playerLauncher = PlayerLauncher(this) {
+        WatchHistory.get(requireContext())
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

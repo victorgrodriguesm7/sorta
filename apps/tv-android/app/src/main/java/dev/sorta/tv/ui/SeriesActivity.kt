@@ -24,12 +24,16 @@ class SeriesActivity : FragmentActivity() {
         const val EXTRA_DRIVE_ROOT = "drive_root"
         const val EXTRA_FOLDER_PATH = "folder_path"
         const val EXTRA_TITLE = "title"
+        const val EXTRA_POSTER_PATH = "poster_path"
+        const val EXTRA_POSTER_URL = "poster_url"
 
         fun intentFor(context: Context, driveRoot: File, media: MediaRow): Intent =
             Intent(context, SeriesActivity::class.java).apply {
                 putExtra(EXTRA_DRIVE_ROOT, driveRoot.absolutePath)
                 putExtra(EXTRA_FOLDER_PATH, media.folderPath)
                 putExtra(EXTRA_TITLE, media.title)
+                putExtra(EXTRA_POSTER_PATH, media.posterPath)
+                putExtra(EXTRA_POSTER_URL, media.posterUrl)
             }
     }
 }

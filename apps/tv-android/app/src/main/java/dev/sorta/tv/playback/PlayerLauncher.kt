@@ -24,11 +24,20 @@ import java.io.File
  * so we set both and read both back.
  */
 class PlayerLauncher(
-    private val fragment: Fragment,
-    private val history: WatchHistory,
+    fragment: Fragment,
+    /**
+     * Deferred lookup so the launcher itself can be constructed
+     * during field initialisation (which fires before `onAttach`,
+     * where `requireContext()` would otherwise throw). We resolve
+     * the [WatchHistory] only at launch / result time.
+     */
+    private val historyProvider: () -> WatchHistory,
 ) {
     private var pendingKey: String? = null
 
+    // registerForActivityResult MUST run before the fragment reaches
+    // its CREATED lifecycle state. Initialising this property at
+    // construction time (rather than via `by lazy`) guarantees that.
     private val launcher: ActivityResultLauncher<Intent> =
         fragment.registerForActivityResult(
             ActivityResultContracts.StartActivityForResult(),
@@ -36,15 +45,18 @@ class PlayerLauncher(
         )
 
     /**
-     * Launch [file] in the user's chosen external player. If
-     * [history] already has a known position for [mediaKey], we ask
+     * Launch [file] in the user's chosen external player. If watch
+     * history already has a known position for [mediaKey], we ask
      * the player to resume from that point.
      */
     fun launch(file: File, mediaKey: String) {
         pendingKey = mediaKey
         val request = PlaybackIntent.build(file)
         val data = Uri.fromFile(File(request.filePath))
-        val resumePos = history.progressFor(mediaKey)?.takeIf { !it.watched }?.positionMs ?: 0L
+        val resumePos = historyProvider().progressFor(mediaKey)
+            ?.takeIf { !it.watched }
+            ?.positionMs
+            ?: 0L
         val intent = Intent(request.action)
             .setDataAndType(data, request.mimeType)
             .addFlags(request.flags)
@@ -71,6 +83,7 @@ class PlayerLauncher(
         // to update and leave the row alone.
         if (position <= 0 && duration <= 0 && !endedByCompletion) return
 
+        val history = historyProvider()
         history.record(key, positionMs = position, durationMs = duration)
         if (endedByCompletion) {
             history.setWatched(key, true)

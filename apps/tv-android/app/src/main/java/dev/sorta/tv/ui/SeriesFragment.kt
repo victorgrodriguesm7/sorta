@@ -30,8 +30,10 @@ class SeriesFragment : BrowseSupportFragment() {
     private lateinit var rowsAdapter: ArrayObjectAdapter
     private lateinit var driveRoot: File
     private lateinit var seriesRoot: File
-    private val playerLauncher: PlayerLauncher by lazy {
-        PlayerLauncher(this, WatchHistory.get(requireContext()))
+    private var seriesPosterPath: String? = null
+    private var seriesPosterUrl: String? = null
+    private val playerLauncher = PlayerLauncher(this) {
+        WatchHistory.get(requireContext())
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,6 +42,8 @@ class SeriesFragment : BrowseSupportFragment() {
         driveRoot = File(args.getStringExtra(SeriesActivity.EXTRA_DRIVE_ROOT)!!)
         val folderPath = args.getStringExtra(SeriesActivity.EXTRA_FOLDER_PATH)!!
         seriesRoot = File(driveRoot, folderPath)
+        seriesPosterPath = args.getStringExtra(SeriesActivity.EXTRA_POSTER_PATH)
+        seriesPosterUrl = args.getStringExtra(SeriesActivity.EXTRA_POSTER_URL)
         title = args.getStringExtra(SeriesActivity.EXTRA_TITLE)
         headersState = HEADERS_ENABLED
         isHeadersTransitionOnBackEnabled = true
@@ -89,7 +93,11 @@ class SeriesFragment : BrowseSupportFragment() {
             ).show()
             return
         }
-        val presenter = EpisodePresenter { episode ->
+        val presenter = EpisodePresenter(
+            driveRoot = driveRoot,
+            seriesPosterPath = seriesPosterPath,
+            seriesPosterUrl = seriesPosterUrl,
+        ) { episode ->
             progress[WatchHistory.keyFor(driveRoot, episode.file)]
         }
         var headerId = 0L
