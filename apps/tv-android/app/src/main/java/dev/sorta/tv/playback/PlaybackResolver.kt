@@ -33,6 +33,12 @@ object PlaybackResolver {
 
     fun resolve(driveRoot: File, media: MediaRow): File? {
         val folder = locateMediaFolder(driveRoot, media) ?: return null
+
+        Log.d(
+            "FolderPath: ${media.folderPath}",
+            "FirstVideo: ${firstPlayableVideo(folder).toString()}"
+        )
+
         return when (media.mediaType) {
             MediaType.MOVIE -> firstPlayableVideo(folder)
             MediaType.TV -> firstPlayableEpisode(folder)
