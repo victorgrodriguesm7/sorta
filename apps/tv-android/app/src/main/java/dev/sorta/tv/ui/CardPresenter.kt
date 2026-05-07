@@ -1,6 +1,5 @@
 package dev.sorta.tv.ui
 
-import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.view.ViewGroup
 import androidx.core.content.ContextCompat
@@ -9,6 +8,7 @@ import androidx.leanback.widget.Presenter
 import com.bumptech.glide.Glide
 import dev.sorta.tv.R
 import dev.sorta.tv.data.MediaRow
+import dev.sorta.tv.data.WatchHistory
 import java.io.File
 
 /**
@@ -18,10 +18,16 @@ import java.io.File
  *
  * Card size is fixed in dp so a row of TMDB w185 posters
  * (185×278 native) lays out without stretching on a 1080p TV.
+ *
+ * The watched / in-progress badge is sourced via [progressFor] so
+ * the presenter has no compile-time dependency on the watch store —
+ * the fragment hands in a snapshot map at render time.
  */
 class CardPresenter(
     /** Drive root that [MediaRow.posterPath] is resolved against. */
     private val driveRoot: File,
+    /** Progress lookup for badge rendering. Null means "no badge". */
+    private val progressFor: (MediaRow) -> WatchHistory.Progress? = { null },
 ) : Presenter() {
 
     // 185 × 278 ≈ TMDB w185 native poster aspect ratio.
@@ -50,6 +56,10 @@ class CardPresenter(
         val card = holder.view as ImageCardView
         card.titleText = media.title
         card.contentText = media.originalTitle?.takeIf { it != media.title }
+
+        // Watched takes priority over in-progress: a finished movie is
+        // "done" even if the player reported a position before exit.
+        card.badgeImage = badgeFor(card.context, progressFor(media))
 
         val placeholder: Drawable? = ContextCompat.getDrawable(
             card.context,
@@ -83,4 +93,20 @@ class CardPresenter(
         card.badgeImage = null
         card.mainImage = null
     }
+}
+
+/**
+ * Pick the right corner badge for [progress]:
+ *   - watched   → ic_check
+ *   - resumable → ic_resume (any non-zero position that isn't "watched")
+ *   - otherwise → no badge
+ */
+internal fun badgeFor(
+    context: android.content.Context,
+    progress: WatchHistory.Progress?,
+): Drawable? = when {
+    progress == null -> null
+    progress.watched -> ContextCompat.getDrawable(context, R.drawable.ic_check)
+    progress.positionMs > 0 -> ContextCompat.getDrawable(context, R.drawable.ic_resume)
+    else -> null
 }

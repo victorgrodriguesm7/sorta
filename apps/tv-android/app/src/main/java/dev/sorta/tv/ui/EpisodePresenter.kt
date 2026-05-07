@@ -6,6 +6,7 @@ import androidx.leanback.widget.ImageCardView
 import androidx.leanback.widget.Presenter
 import dev.sorta.tv.R
 import dev.sorta.tv.data.Episode
+import dev.sorta.tv.data.WatchHistory
 
 /**
  * Renders one [Episode] as a Leanback [ImageCardView]. We don't have
@@ -17,7 +18,10 @@ import dev.sorta.tv.data.Episode
  * Card is wider than the poster card and shorter, since episode
  * labels read better in landscape and there's no portrait artwork.
  */
-class EpisodePresenter : Presenter() {
+class EpisodePresenter(
+    /** Progress lookup for the watched/resume badge. */
+    private val progressFor: (Episode) -> WatchHistory.Progress? = { null },
+) : Presenter() {
 
     private val cardWidthDp = 220
     private val cardHeightDp = 124
@@ -45,11 +49,13 @@ class EpisodePresenter : Presenter() {
         val card = holder.view as ImageCardView
         card.titleText = episode.label
         card.contentText = episode.file.nameWithoutExtension.takeIf { it != episode.label }
+        card.badgeImage = badgeFor(card.context, progressFor(episode))
     }
 
     override fun onUnbindViewHolder(holder: ViewHolder) {
         val card = holder.view as ImageCardView
         card.titleText = null
         card.contentText = null
+        card.badgeImage = null
     }
 }

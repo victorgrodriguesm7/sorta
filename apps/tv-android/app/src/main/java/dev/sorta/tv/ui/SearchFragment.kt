@@ -88,9 +88,30 @@ class SearchFragment :
     private fun renderResults(drive: File, query: String, rows: List<MediaRow>) {
         resultsAdapter.clear()
         if (rows.isEmpty()) return
+        val allProgress = WatchHistory.get(requireContext()).progressUnder("")
         val header = HeaderItem(0, getString(R.string.search_results_header, query))
-        val cards = ArrayObjectAdapter(CardPresenter(drive)).apply { addAll(0, rows) }
+        val presenter = CardPresenter(drive) { media ->
+            aggregateProgress(media.folderPath, allProgress)
+        }
+        val cards = ArrayObjectAdapter(presenter).apply { addAll(0, rows) }
         resultsAdapter.add(ListRow(header, cards))
+    }
+
+    /** Same shape as BrowseFragment.aggregateProgress — see there for rationale. */
+    private fun aggregateProgress(
+        folderPath: String,
+        all: Map<String, WatchHistory.Progress>,
+    ): WatchHistory.Progress? {
+        val prefix = "$folderPath/"
+        val entries = all.entries.filter { it.key.startsWith(prefix) }
+        if (entries.isEmpty()) return null
+        val anyWatched = entries.any { it.value.watched }
+        val anyInProgress = entries.any { it.value.positionMs > 0 && !it.value.watched }
+        return WatchHistory.Progress(
+            positionMs = if (!anyWatched && anyInProgress) 1L else 0L,
+            durationMs = 0L,
+            watched = anyWatched,
+        )
     }
 
     private fun onMediaClicked(media: MediaRow) {

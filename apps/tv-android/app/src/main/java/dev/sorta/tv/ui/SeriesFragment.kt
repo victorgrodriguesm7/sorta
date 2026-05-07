@@ -54,17 +54,32 @@ class SeriesFragment : BrowseSupportFragment() {
         loadSeasons()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Refresh per-episode progress badges after returning from
+        // the player.
+        loadSeasons()
+    }
+
     private fun loadSeasons() {
         viewLifecycleOwnerLiveData.observe(this) { owner ->
             if (owner == null) return@observe
             owner.lifecycleScope.launch {
-                val seasons = withContext(Dispatchers.IO) { SeriesScanner.scan(seriesRoot) }
-                renderSeasons(seasons)
+                val payload = withContext(Dispatchers.IO) {
+                    val seasons = SeriesScanner.scan(seriesRoot)
+                    val folderKey = WatchHistory.keyFor(driveRoot, seriesRoot)
+                    val progress = WatchHistory.get(requireContext()).progressUnder(folderKey)
+                    seasons to progress
+                }
+                renderSeasons(payload.first, payload.second)
             }
         }
     }
 
-    private fun renderSeasons(seasons: List<Season>) {
+    private fun renderSeasons(
+        seasons: List<Season>,
+        progress: Map<String, WatchHistory.Progress>,
+    ) {
         rowsAdapter.clear()
         if (seasons.isEmpty()) {
             Toast.makeText(
@@ -74,7 +89,9 @@ class SeriesFragment : BrowseSupportFragment() {
             ).show()
             return
         }
-        val presenter = EpisodePresenter()
+        val presenter = EpisodePresenter { episode ->
+            progress[WatchHistory.keyFor(driveRoot, episode.file)]
+        }
         var headerId = 0L
         for (season in seasons) {
             val header = HeaderItem(headerId++, season.label)

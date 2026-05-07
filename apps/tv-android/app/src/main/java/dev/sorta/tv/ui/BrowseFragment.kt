@@ -86,16 +86,24 @@ class BrowseFragment : BrowseSupportFragment() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Refresh progress badges after returning from the player.
+        // Catalog data hasn't changed, so just rebuild row contents.
+        loadCatalog()
+    }
+
     private suspend fun buildRows(): CatalogPayload? {
         val drive = requireArguments().getString(ARG_DRIVE_ROOT)?.let(::File)
             ?: return null
+        val progress = WatchHistory.get(requireContext()).progressUnder("")
         MediaRepository.open(File(drive, "sorta.db")).use { repo ->
             val series = repo.listSeries()
             val movieGenres = repo.listGenres(MediaType.MOVIE)
             val moviesByGenre = movieGenres.associateWith { genre ->
                 repo.listMoviesByGenre(genre.id)
             }
-            return CatalogPayload(drive, series, movieGenres, moviesByGenre)
+            return CatalogPayload(drive, series, movieGenres, moviesByGenre, progress)
         }
     }
 
@@ -107,7 +115,9 @@ class BrowseFragment : BrowseSupportFragment() {
         }
         driveRoot = payload.driveRoot
 
-        val cardPresenter = CardPresenter(payload.driveRoot)
+        val cardPresenter = CardPresenter(payload.driveRoot) { media ->
+            aggregateProgress(media.folderPath, payload.progress)
+        }
         var headerId = 0L
 
         if (payload.series.isNotEmpty()) {
@@ -129,11 +139,38 @@ class BrowseFragment : BrowseSupportFragment() {
         }
     }
 
+    /**
+     * Synthesise a [WatchHistory.Progress] for a [MediaRow] from every
+     * watch-history entry under its folder. The returned value drives
+     * the corner badge:
+     *   - any episode watched → `watched = true`  (✓ check icon)
+     *   - any episode partial → `positionMs > 0`  (▶ resume icon)
+     * Position/duration values themselves are placeholders here —
+     * the badge presenter only inspects which case fires, not the
+     * exact ms.
+     */
+    private fun aggregateProgress(
+        folderPath: String,
+        all: Map<String, WatchHistory.Progress>,
+    ): WatchHistory.Progress? {
+        val prefix = "$folderPath/"
+        val entries = all.entries.filter { it.key.startsWith(prefix) }
+        if (entries.isEmpty()) return null
+        val anyWatched = entries.any { it.value.watched }
+        val anyInProgress = entries.any { it.value.positionMs > 0 && !it.value.watched }
+        return WatchHistory.Progress(
+            positionMs = if (!anyWatched && anyInProgress) 1L else 0L,
+            durationMs = 0L,
+            watched = anyWatched,
+        )
+    }
+
     private data class CatalogPayload(
         val driveRoot: File,
         val series: List<MediaRow>,
         val genres: List<GenreRow>,
         val moviesByGenre: Map<GenreRow, List<MediaRow>>,
+        val progress: Map<String, WatchHistory.Progress>,
     )
 
     companion object {
