@@ -64,13 +64,16 @@ class BrowseFragment : BrowseSupportFragment() {
             return
         }
         val request = PlaybackIntent.build(file)
+        // Uri.fromFile produces "file:///…" — VLC and MX Player parse
+        // this; java.io.File.toURI()'s "file:/…" trips VLC up.
+        val data = Uri.fromFile(File(request.filePath))
         val play = Intent(request.action)
-            .setDataAndType(Uri.parse(request.uri), request.mimeType)
+            .setDataAndType(data, request.mimeType)
             .addFlags(request.flags)
-        // Wrap in createChooser so the user can pick VLC / MX Player /
-        // whatever they have installed instead of being silently
-        // routed to whichever player claims highest priority.
-        startActivity(Intent.createChooser(play, getString(R.string.playback_chooser_title)))
+        // Bare startActivity (no createChooser wrapper) so Android's
+        // own disambiguator shows up with the "Always" / "Just once"
+        // buttons. createChooser deliberately re-prompts every time.
+        startActivity(play)
     }
 
     private fun loadCatalog() {

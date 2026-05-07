@@ -102,10 +102,11 @@ class SearchFragment :
             return
         }
         val request = PlaybackIntent.build(file)
+        val data = Uri.fromFile(File(request.filePath))
         val play = Intent(request.action)
-            .setDataAndType(Uri.parse(request.uri), request.mimeType)
+            .setDataAndType(data, request.mimeType)
             .addFlags(request.flags)
-        startActivity(Intent.createChooser(play, getString(R.string.playback_chooser_title)))
+        startActivity(play)
     }
 
     private companion object {

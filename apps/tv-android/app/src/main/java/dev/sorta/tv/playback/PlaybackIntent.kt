@@ -11,7 +11,7 @@ import java.io.File
  * Per `docs/disk-format.md#reading-a-single-linked-file` the playback
  * shape on Android 7.1.1 is:
  *
- *   Intent(ACTION_VIEW).setDataAndType(Uri.fromFile(file), "video/ *")
+ *   Intent(ACTION_VIEW).setDataAndType(Uri.fromFile(file), "video/*")
  *
  * VLC and MX Player accept `file://` URIs directly on this API level;
  * if a stricter player ever needs FileProvider URIs we'll layer that
@@ -19,7 +19,16 @@ import java.io.File
  */
 data class PlaybackRequest(
     val action: String,
-    val uri: String,
+    /**
+     * Absolute path to the video file. Kept as a plain String (not a
+     * URI) so this data class stays JVM-testable — the UI layer turns
+     * it into a real `android.net.Uri` via `Uri.fromFile(File(path))`,
+     * which emits the triple-slash `file:///…` form every Android
+     * player parses correctly. (`java.io.File.toURI()` emits the
+     * single-slash `file:/…` form, which VLC rejects with a generic
+     * "can't reproduce media" error.)
+     */
+    val filePath: String,
     val mimeType: String,
     val flags: Int,
 ) {
@@ -32,13 +41,14 @@ data class PlaybackRequest(
 object PlaybackIntent {
 
     /**
-     * Build a [PlaybackRequest] for a single video file. The URI uses
-     * the `file://` scheme — sufficient for the players we target on
-     * the deployment box (Android 7.1.1, no FileProvider needed yet).
+     * Build a [PlaybackRequest] for a single video file. The UI layer
+     * is responsible for materialising the file path into the
+     * `file:///…` URI Android players expect — see the field doc on
+     * [PlaybackRequest.filePath].
      */
     fun build(file: File): PlaybackRequest = PlaybackRequest(
         action = PlaybackRequest.ACTION_VIEW,
-        uri = file.toURI().toString(),
+        filePath = file.absolutePath,
         mimeType = "video/*",
         flags = PlaybackRequest.FLAG_GRANT_READ_URI_PERMISSION,
     )
