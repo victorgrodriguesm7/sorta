@@ -43,7 +43,7 @@ class BrowseFragment : BrowseSupportFragment() {
         adapter = rowsAdapter
 
         onItemViewClickedListener = OnItemViewClickedListener { _, item, _, _ ->
-            if (item is MediaRow) launchPlayback(item)
+            if (item is MediaRow) onMediaClicked(item)
         }
         setOnSearchClickedListener {
             startActivity(Intent(requireContext(), SearchActivity::class.java))
@@ -52,8 +52,15 @@ class BrowseFragment : BrowseSupportFragment() {
         loadCatalog()
     }
 
-    private fun launchPlayback(media: MediaRow) {
+    private fun onMediaClicked(media: MediaRow) {
         val root = driveRoot ?: return
+        when (media.mediaType) {
+            MediaType.MOVIE -> launchMovie(root, media)
+            MediaType.TV -> startActivity(SeriesActivity.intentFor(requireContext(), root, media))
+        }
+    }
+
+    private fun launchMovie(root: File, media: MediaRow) {
         val file = PlaybackResolver.resolve(root, media)
         if (file == null) {
             Toast.makeText(

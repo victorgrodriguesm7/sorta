@@ -11,4 +11,5 @@
     <string name="error_no_drive">No catalogued drive found. Plug in your hard drive and try again.</string>
     <string name="error_missing_db">A drive is plugged in but no sorta.db was found at its root. Catalog the drive on the desktop app first.</string>
     <string name="error_schema_too_new">This drive was written by a newer version of Sorta (schema %1$d) than this app understands (schema %2$d). Update Sorta TV to continue.</string>
+    <string name="series_empty">No episodes found on disk for this series.</string>
 </resources>

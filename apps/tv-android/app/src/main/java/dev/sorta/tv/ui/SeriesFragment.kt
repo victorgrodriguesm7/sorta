@@ -1,0 +1,92 @@
+package dev.sorta.tv.ui
+
+import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.widget.Toast
+import androidx.leanback.app.BrowseSupportFragment
+import androidx.leanback.widget.ArrayObjectAdapter
+import androidx.leanback.widget.HeaderItem
+import androidx.leanback.widget.ListRow
+import androidx.leanback.widget.ListRowPresenter
+import androidx.leanback.widget.OnItemViewClickedListener
+import androidx.lifecycle.lifecycleScope
+import dev.sorta.tv.R
+import dev.sorta.tv.data.Episode
+import dev.sorta.tv.data.Season
+import dev.sorta.tv.data.SeriesScanner
+import dev.sorta.tv.playback.PlaybackIntent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+
+/**
+ * One row per season, each row containing the season's episodes as
+ * cards. Clicking an episode launches the same external-player
+ * intent the browse screen uses for movies.
+ */
+class SeriesFragment : BrowseSupportFragment() {
+
+    private lateinit var rowsAdapter: ArrayObjectAdapter
+    private lateinit var driveRoot: File
+    private lateinit var seriesRoot: File
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val args = requireActivity().intent
+        driveRoot = File(args.getStringExtra(SeriesActivity.EXTRA_DRIVE_ROOT)!!)
+        val folderPath = args.getStringExtra(SeriesActivity.EXTRA_FOLDER_PATH)!!
+        seriesRoot = File(driveRoot, folderPath)
+        title = args.getStringExtra(SeriesActivity.EXTRA_TITLE)
+        headersState = HEADERS_ENABLED
+        isHeadersTransitionOnBackEnabled = true
+
+        rowsAdapter = ArrayObjectAdapter(ListRowPresenter())
+        adapter = rowsAdapter
+
+        onItemViewClickedListener = OnItemViewClickedListener { _, item, _, _ ->
+            if (item is Episode) launchEpisode(item)
+        }
+
+        loadSeasons()
+    }
+
+    private fun loadSeasons() {
+        viewLifecycleOwnerLiveData.observe(this) { owner ->
+            if (owner == null) return@observe
+            owner.lifecycleScope.launch {
+                val seasons = withContext(Dispatchers.IO) { SeriesScanner.scan(seriesRoot) }
+                renderSeasons(seasons)
+            }
+        }
+    }
+
+    private fun renderSeasons(seasons: List<Season>) {
+        rowsAdapter.clear()
+        if (seasons.isEmpty()) {
+            Toast.makeText(
+                requireContext(),
+                getString(R.string.series_empty),
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        val presenter = EpisodePresenter()
+        var headerId = 0L
+        for (season in seasons) {
+            val header = HeaderItem(headerId++, season.label)
+            val row = ArrayObjectAdapter(presenter).apply { addAll(0, season.episodes) }
+            rowsAdapter.add(ListRow(header, row))
+        }
+    }
+
+    private fun launchEpisode(episode: Episode) {
+        val request = PlaybackIntent.build(episode.file)
+        val data = Uri.fromFile(File(request.filePath))
+        val play = Intent(request.action)
+            .setDataAndType(data, request.mimeType)
+            .addFlags(request.flags)
+        startActivity(play)
+    }
+}

@@ -15,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import dev.sorta.tv.R
 import dev.sorta.tv.data.MediaRepository
 import dev.sorta.tv.data.MediaRow
+import dev.sorta.tv.data.MediaType
 import dev.sorta.tv.playback.PlaybackIntent
 import dev.sorta.tv.playback.PlaybackResolver
 import dev.sorta.tv.usb.UsbDriveLocator
@@ -42,7 +43,7 @@ class SearchFragment :
         resultsAdapter = ArrayObjectAdapter(ListRowPresenter())
         setSearchResultProvider(this)
         setOnItemViewClickedListener(OnItemViewClickedListener { _, item, _, _ ->
-            if (item is MediaRow) launchPlayback(item)
+            if (item is MediaRow) onMediaClicked(item)
         })
 
         viewLifecycleOwnerLiveData.observe(this) { owner ->
@@ -90,8 +91,15 @@ class SearchFragment :
         resultsAdapter.add(ListRow(header, cards))
     }
 
-    private fun launchPlayback(media: MediaRow) {
+    private fun onMediaClicked(media: MediaRow) {
         val drive = driveRoot ?: return
+        when (media.mediaType) {
+            MediaType.MOVIE -> launchMovie(drive, media)
+            MediaType.TV -> startActivity(SeriesActivity.intentFor(requireContext(), drive, media))
+        }
+    }
+
+    private fun launchMovie(drive: File, media: MediaRow) {
         val file = PlaybackResolver.resolve(drive, media)
         if (file == null) {
             Toast.makeText(
