@@ -1,7 +1,5 @@
 package dev.sorta.tv.ui
 
-import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.leanback.app.SearchSupportFragment
@@ -16,8 +14,9 @@ import dev.sorta.tv.R
 import dev.sorta.tv.data.MediaRepository
 import dev.sorta.tv.data.MediaRow
 import dev.sorta.tv.data.MediaType
-import dev.sorta.tv.playback.PlaybackIntent
+import dev.sorta.tv.data.WatchHistory
 import dev.sorta.tv.playback.PlaybackResolver
+import dev.sorta.tv.playback.PlayerLauncher
 import dev.sorta.tv.usb.UsbDriveLocator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,6 +36,9 @@ class SearchFragment :
     private lateinit var resultsAdapter: ArrayObjectAdapter
     private var driveRoot: File? = null
     private var pendingQuery: Job? = null
+    private val playerLauncher: PlayerLauncher by lazy {
+        PlayerLauncher(this, WatchHistory.get(requireContext()))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,12 +111,7 @@ class SearchFragment :
             ).show()
             return
         }
-        val request = PlaybackIntent.build(file)
-        val data = Uri.fromFile(File(request.filePath))
-        val play = Intent(request.action)
-            .setDataAndType(data, request.mimeType)
-            .addFlags(request.flags)
-        startActivity(play)
+        playerLauncher.launch(file, WatchHistory.keyFor(drive, file))
     }
 
     private companion object {

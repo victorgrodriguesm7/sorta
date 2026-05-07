@@ -2,7 +2,6 @@ package dev.sorta.tv.ui
 
 import android.os.Bundle
 import android.content.Intent
-import android.net.Uri
 import android.widget.Toast
 import androidx.leanback.app.BrowseSupportFragment
 import androidx.leanback.widget.ArrayObjectAdapter
@@ -16,8 +15,9 @@ import dev.sorta.tv.data.GenreRow
 import dev.sorta.tv.data.MediaRepository
 import dev.sorta.tv.data.MediaRow
 import dev.sorta.tv.data.MediaType
-import dev.sorta.tv.playback.PlaybackIntent
+import dev.sorta.tv.data.WatchHistory
 import dev.sorta.tv.playback.PlaybackResolver
+import dev.sorta.tv.playback.PlayerLauncher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -33,6 +33,9 @@ class BrowseFragment : BrowseSupportFragment() {
 
     private lateinit var rowsAdapter: ArrayObjectAdapter
     private var driveRoot: File? = null
+    private val playerLauncher: PlayerLauncher by lazy {
+        PlayerLauncher(this, WatchHistory.get(requireContext()))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -70,17 +73,7 @@ class BrowseFragment : BrowseSupportFragment() {
             ).show()
             return
         }
-        val request = PlaybackIntent.build(file)
-        // Uri.fromFile produces "file:///…" — VLC and MX Player parse
-        // this; java.io.File.toURI()'s "file:/…" trips VLC up.
-        val data = Uri.fromFile(File(request.filePath))
-        val play = Intent(request.action)
-            .setDataAndType(data, request.mimeType)
-            .addFlags(request.flags)
-        // Bare startActivity (no createChooser wrapper) so Android's
-        // own disambiguator shows up with the "Always" / "Just once"
-        // buttons. createChooser deliberately re-prompts every time.
-        startActivity(play)
+        playerLauncher.launch(file, WatchHistory.keyFor(root, file))
     }
 
     private fun loadCatalog() {

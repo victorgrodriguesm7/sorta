@@ -1,7 +1,5 @@
 package dev.sorta.tv.ui
 
-import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.leanback.app.BrowseSupportFragment
@@ -15,7 +13,8 @@ import dev.sorta.tv.R
 import dev.sorta.tv.data.Episode
 import dev.sorta.tv.data.Season
 import dev.sorta.tv.data.SeriesScanner
-import dev.sorta.tv.playback.PlaybackIntent
+import dev.sorta.tv.data.WatchHistory
+import dev.sorta.tv.playback.PlayerLauncher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -31,6 +30,9 @@ class SeriesFragment : BrowseSupportFragment() {
     private lateinit var rowsAdapter: ArrayObjectAdapter
     private lateinit var driveRoot: File
     private lateinit var seriesRoot: File
+    private val playerLauncher: PlayerLauncher by lazy {
+        PlayerLauncher(this, WatchHistory.get(requireContext()))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,11 +84,9 @@ class SeriesFragment : BrowseSupportFragment() {
     }
 
     private fun launchEpisode(episode: Episode) {
-        val request = PlaybackIntent.build(episode.file)
-        val data = Uri.fromFile(File(request.filePath))
-        val play = Intent(request.action)
-            .setDataAndType(data, request.mimeType)
-            .addFlags(request.flags)
-        startActivity(play)
+        playerLauncher.launch(
+            episode.file,
+            WatchHistory.keyFor(driveRoot, episode.file),
+        )
     }
 }
