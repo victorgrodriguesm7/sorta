@@ -142,6 +142,15 @@ private fun String.sqlLikeEscape(): String =
 private fun android.database.Cursor.getStringOrNull(index: Int): String? =
     if (isNull(index)) null else getString(index)
 
+/**
+ * The desktop on Windows currently writes `\` separators into
+ * `media.folder_path` / `media.poster_path` — a violation of
+ * docs/disk-format.md ("path relative to HD root, e.g.
+ * `poster/27205.jpg`" — forward slashes). Normalize here so the
+ * rest of the reader code only ever sees POSIX paths.
+ */
+private fun String?.posixPath(): String? = this?.replace('\\', '/')
+
 private fun android.database.Cursor.toMediaRows(): List<MediaRow> = use { c ->
     buildList {
         while (c.moveToNext()) {
@@ -153,9 +162,9 @@ private fun android.database.Cursor.toMediaRows(): List<MediaRow> = use { c ->
                     title = c.getString(3),
                     originalTitle = c.getStringOrNull(4),
                     runtimeMinutes = if (c.isNull(5)) null else c.getInt(5),
-                    posterPath = c.getStringOrNull(6),
+                    posterPath = c.getStringOrNull(6).posixPath(),
                     posterUrl = c.getStringOrNull(7),
-                    folderPath = c.getString(8),
+                    folderPath = c.getString(8).posixPath()!!,
                 )
             )
         }
