@@ -55,16 +55,23 @@ class MediaRepository internal constructor(
     }
 
     /**
-     * Movies catalogued under [genreId] (matching against `media_genres`,
-     * any role — primary or secondary). Sorted by display title.
+     * Movies catalogued under [genreId]. By default returns only the
+     * movies whose primary genre is [genreId] — the same convention
+     * the desktop uses to pick the on-disk folder, so each movie shows
+     * up exactly once in the browse UI. Pass [primaryOnly] = false to
+     * get every match, including secondary-genre links.
+     *
+     * Sorted by display title.
      */
-    fun listMoviesByGenre(genreId: Long): List<MediaRow> {
+    fun listMoviesByGenre(genreId: Long, primaryOnly: Boolean = true): List<MediaRow> {
+        val primaryClause = if (primaryOnly) "AND mg.is_primary = 1" else ""
         val sql = """
             SELECT m.id, m.tmdb_id, m.media_type, m.title, m.original_title,
                    m.runtime_minutes, m.poster_path, m.poster_url, m.folder_path
             FROM media m
             INNER JOIN media_genres mg ON mg.media_id = m.id
-            WHERE m.media_type = 'movie' AND mg.genre_id = ? AND mg.media_type = 'movie'
+            WHERE m.media_type = 'movie' AND mg.genre_id = ?
+              AND mg.media_type = 'movie' $primaryClause
             ORDER BY m.title COLLATE NOCASE
         """.trimIndent()
         return db.rawQuery(sql, arrayOf(genreId.toString())).use { it.toMediaRows() }

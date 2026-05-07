@@ -57,6 +57,10 @@ android {
         // don't care about for an unpublished sideload-only app.
         disable += setOf("OldTargetApi", "ExpiredTargetSdkVersion")
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {

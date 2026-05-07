@@ -61,18 +61,25 @@ class MediaRepositoryTest {
     }
 
     @Test
-    fun listMoviesByGenre_returnsMatchingPrimaryAndSecondary() {
+    fun listMoviesByGenre_defaultsToPrimaryOnly() {
+        // Primary genre matches.
         val action = repo.listMoviesByGenre(28L)
         assertEquals(1, action.size)
         assertEquals("A Origem", action.single().title)
-        assertEquals(27205L, action.single().tmdbId)
 
         val crime = repo.listMoviesByGenre(80L)
         assertEquals(1, crime.size)
         assertEquals("Cidade de Deus", crime.single().title)
 
-        // Drama (movie) — Cidade de Deus has it as a secondary genre.
-        val drama = repo.listMoviesByGenre(18L)
+        // Drama is only a *secondary* genre on Cidade de Deus, so by
+        // default (primaryOnly = true) it returns no rows — that's
+        // what makes each movie appear exactly once in the browse UI.
+        assertTrue(repo.listMoviesByGenre(18L).isEmpty())
+    }
+
+    @Test
+    fun listMoviesByGenre_canOptInToSecondaryMatches() {
+        val drama = repo.listMoviesByGenre(18L, primaryOnly = false)
         assertEquals(1, drama.size)
         assertEquals("Cidade de Deus", drama.single().title)
     }
