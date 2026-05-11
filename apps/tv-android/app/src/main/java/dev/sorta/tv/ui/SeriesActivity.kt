@@ -26,6 +26,7 @@ class SeriesActivity : FragmentActivity() {
         const val EXTRA_TITLE = "title"
         const val EXTRA_POSTER_PATH = "poster_path"
         const val EXTRA_POSTER_URL = "poster_url"
+        const val EXTRA_MEDIA_ID = "media_id"
 
         fun intentFor(context: Context, driveRoot: File, media: MediaRow): Intent =
             Intent(context, SeriesActivity::class.java).apply {
@@ -34,6 +35,7 @@ class SeriesActivity : FragmentActivity() {
                 putExtra(EXTRA_TITLE, media.title)
                 putExtra(EXTRA_POSTER_PATH, media.posterPath)
                 putExtra(EXTRA_POSTER_URL, media.posterUrl)
+                putExtra(EXTRA_MEDIA_ID, media.id)
             }
     }
 }
