@@ -73,6 +73,8 @@ pub fn run() {
             commands::link::reorder_media_genres,
             commands::link::link_as_series,
             commands::link::list_episodes,
+            commands::link::plan_recatalog_series,
+            commands::link::recatalog_series,
             commands::link::set_media_is_new,
             commands::link::update_season_label,
             commands::link::unlink_media,
