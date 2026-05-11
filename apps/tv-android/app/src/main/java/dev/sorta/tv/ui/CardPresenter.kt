@@ -24,8 +24,6 @@ import java.io.File
  * the fragment hands in a snapshot map at render time.
  */
 class CardPresenter(
-    /** Drive root that [MediaRow.posterPath] is resolved against. */
-    private val driveRoot: File,
     /** Progress lookup for badge rendering. Null means "no badge". */
     private val progressFor: (MediaRow) -> WatchHistory.Progress? = { null },
 ) : Presenter() {
@@ -72,7 +70,13 @@ class CardPresenter(
             R.drawable.poster_placeholder,
         )
 
-        val localPoster = media.posterPath?.let { File(driveRoot, it) }
+        // Multi-drive: the row carries its own driveRoot so a merged
+        // catalog can paint posters from any HD it came from. Rows
+        // missing the field (only happens in stale unit fixtures)
+        // skip straight to the URL / placeholder fallback.
+        val localPoster = media.driveRoot?.let { root ->
+            media.posterPath?.let { File(root, it) }
+        }
         when {
             localPoster != null && localPoster.exists() -> {
                 Glide.with(card.context)

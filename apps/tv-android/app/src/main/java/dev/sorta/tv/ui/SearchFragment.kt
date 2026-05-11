@@ -11,6 +11,9 @@ import androidx.leanback.widget.ObjectAdapter
 import androidx.leanback.widget.OnItemViewClickedListener
 import androidx.lifecycle.lifecycleScope
 import dev.sorta.tv.R
+import dev.sorta.tv.data.Catalog
+import dev.sorta.tv.data.CatalogAggregator
+import dev.sorta.tv.data.CatalogCheck
 import dev.sorta.tv.data.MediaRepository
 import dev.sorta.tv.data.MediaRow
 import dev.sorta.tv.data.MediaType
@@ -18,24 +21,25 @@ import dev.sorta.tv.data.WatchHistory
 import dev.sorta.tv.playback.PlaybackResolver
 import dev.sorta.tv.playback.PlayerLauncher
 import dev.sorta.tv.playback.ResumeGate
-import dev.sorta.tv.usb.UsbDriveLocator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Substring search across `media.title` and `media.original_title`.
- * Triggered live as the user types (debounced ~250ms) and on submit.
+ * Substring search across `media.title` and `media.original_title`,
+ * fanned out across every plugged-in drive that passed
+ * [CatalogCheck]'s max-version filter. Triggered live as the user
+ * types (debounced ~250ms) and on submit.
  */
 class SearchFragment :
     SearchSupportFragment(),
     SearchSupportFragment.SearchResultProvider {
 
     private lateinit var resultsAdapter: ArrayObjectAdapter
-    private var driveRoot: File? = null
+    private var driveRoots: List<File> = emptyList()
     private var pendingQuery: Job? = null
     private val playerLauncher = PlayerLauncher(this) {
         WatchHistory.get(requireContext())
@@ -52,7 +56,11 @@ class SearchFragment :
         viewLifecycleOwnerLiveData.observe(this) { owner ->
             if (owner == null) return@observe
             owner.lifecycleScope.launch(Dispatchers.IO) {
-                driveRoot = UsbDriveLocator.locate().firstOrNull()
+                // Reuse the same multi-drive discovery the browse
+                // screen uses so search hits exactly the drives the
+                // user is browsing — and never an older-schema drive.
+                val result = CatalogCheck.run()
+                driveRoots = (result as? CatalogCheck.Result.Ok)?.driveRoots.orEmpty()
             }
         }
     }
@@ -78,20 +86,27 @@ class SearchFragment :
         }
         pendingQuery = lifecycleScope.launch {
             if (debounce) delay(DEBOUNCE_MS)
-            val drive = driveRoot ?: return@launch
+            val drives = driveRoots
+            if (drives.isEmpty()) return@launch
             val rows = withContext(Dispatchers.IO) {
-                MediaRepository.open(File(drive, "sorta.db")).use { it.search(query) }
+                openCatalog(drives).use { it.search(query) }
             }
-            renderResults(drive, query, rows)
+            renderResults(query, rows)
         }
     }
 
-    private fun renderResults(drive: File, query: String, rows: List<MediaRow>) {
+    /** Open a single repo for one drive, or wrap N repos in an aggregator. */
+    private fun openCatalog(drives: List<File>): Catalog {
+        val backends = drives.map { File(it, "sorta.db") }.map(MediaRepository::open)
+        return if (backends.size == 1) backends.single() else CatalogAggregator(backends)
+    }
+
+    private fun renderResults(query: String, rows: List<MediaRow>) {
         resultsAdapter.clear()
         if (rows.isEmpty()) return
         val allProgress = WatchHistory.get(requireContext()).progressUnder("")
         val header = HeaderItem(0, getString(R.string.search_results_header, query))
-        val presenter = CardPresenter(drive) { media ->
+        val presenter = CardPresenter { media ->
             aggregateProgress(media.folderPath, allProgress)
         }
         val cards = ArrayObjectAdapter(presenter).apply { addAll(0, rows) }
@@ -116,7 +131,9 @@ class SearchFragment :
     }
 
     private fun onMediaClicked(media: MediaRow) {
-        val drive = driveRoot ?: return
+        // The row carries the drive it came from; fall back to the
+        // first known drive only as a sanity net for stale rows.
+        val drive = media.driveRoot ?: driveRoots.firstOrNull() ?: return
         when (media.mediaType) {
             MediaType.MOVIE -> launchMovie(drive, media)
             MediaType.TV -> startActivity(SeriesActivity.intentFor(requireContext(), drive, media))

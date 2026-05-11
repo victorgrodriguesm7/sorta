@@ -11,6 +11,8 @@ import androidx.leanback.widget.ListRowPresenter
 import androidx.leanback.widget.OnItemViewClickedListener
 import androidx.lifecycle.lifecycleScope
 import dev.sorta.tv.R
+import dev.sorta.tv.data.Catalog
+import dev.sorta.tv.data.CatalogAggregator
 import dev.sorta.tv.data.GenreRow
 import dev.sorta.tv.data.MediaRepository
 import dev.sorta.tv.data.MediaRow
@@ -30,11 +32,16 @@ import java.io.File
  * "Series" row at the top. Genre row labels are the
  * `translated_name` from the desktop, falling back to the canonical
  * English name from TMDB.
+ *
+ * Backed by a [CatalogAggregator] when more than one drive is
+ * plugged in — the rows are merged across drives transparently and
+ * each [MediaRow] keeps a back-pointer to the HD it came from so
+ * playback / poster resolution stays drive-correct.
  */
 class BrowseFragment : BrowseSupportFragment() {
 
     private lateinit var rowsAdapter: ArrayObjectAdapter
-    private var driveRoot: File? = null
+    private var driveRoots: List<File> = emptyList()
     // Eager init (not `by lazy`) so registerForActivityResult fires
     // before the fragment reaches CREATED — see PlayerLauncher kdoc.
     private val playerLauncher = PlayerLauncher(this) {
@@ -82,7 +89,12 @@ class BrowseFragment : BrowseSupportFragment() {
     }
 
     private fun onMediaClicked(media: MediaRow) {
-        val root = driveRoot ?: return
+        // Use the row's own driveRoot — in multi-drive mode the
+        // catalog list is a merged view, so `driveRoots[0]` would
+        // launch playback against the wrong HD for rows from later
+        // drives. Fall back to the first known drive only as a
+        // sanity net for legacy fixture rows (`driveRoot == null`).
+        val root = media.driveRoot ?: driveRoots.firstOrNull() ?: return
         when (media.mediaType) {
             MediaType.MOVIE -> launchMovie(root, media)
             MediaType.TV -> startActivity(SeriesActivity.intentFor(requireContext(), root, media))
@@ -126,32 +138,34 @@ class BrowseFragment : BrowseSupportFragment() {
     }
 
     private suspend fun buildRows(): CatalogPayload? {
-        val drive = requireArguments().getString(ARG_DRIVE_ROOT)?.let(::File)
+        val drives = requireArguments()
+            .getStringArray(ARG_DRIVE_ROOTS)
+            ?.map(::File)
             ?: return null
+        if (drives.isEmpty()) return null
         val progress = WatchHistory.get(requireContext()).progressUnder("")
-        MediaRepository.open(File(drive, "sorta.db")).use { repo ->
+        val backends = drives.map { File(it, "sorta.db") }.map(MediaRepository::open)
+        val catalog: Catalog = if (backends.size == 1) backends.single() else CatalogAggregator(backends)
+        catalog.use { repo ->
             val series = repo.listSeries()
             val movieGenres = repo.listGenres(MediaType.MOVIE)
             val moviesByGenre = movieGenres.associateWith { genre ->
                 repo.listMoviesByGenre(genre.id)
             }
-            // "Recently added" = movies catalogued in the last 14 days
-            // with the is_new flag set. Empty list on v3 drives that
-            // predate the columns; the row is hidden in that case.
             val recent = repo.listRecentlyAddedMovies(RecentWindow.cutoff())
-            return CatalogPayload(drive, recent, series, movieGenres, moviesByGenre, progress)
+            return CatalogPayload(drives, recent, series, movieGenres, moviesByGenre, progress)
         }
     }
 
     private fun renderRows(payload: CatalogPayload?) {
         rowsAdapter.clear()
         if (payload == null) {
-            driveRoot = null
+            driveRoots = emptyList()
             return
         }
-        driveRoot = payload.driveRoot
+        driveRoots = payload.driveRoots
 
-        val cardPresenter = CardPresenter(payload.driveRoot) { media ->
+        val cardPresenter = CardPresenter { media ->
             aggregateProgress(media.mediaType, media.folderPath, payload.progress)
         }
         var headerId = 0L
@@ -221,7 +235,7 @@ class BrowseFragment : BrowseSupportFragment() {
     }
 
     private data class CatalogPayload(
-        val driveRoot: File,
+        val driveRoots: List<File>,
         /** Top-of-screen row: movies the user flagged + catalogued recently. */
         val recentlyAdded: List<MediaRow>,
         val series: List<MediaRow>,
@@ -231,10 +245,15 @@ class BrowseFragment : BrowseSupportFragment() {
     )
 
     companion object {
-        private const val ARG_DRIVE_ROOT = "drive_root"
+        private const val ARG_DRIVE_ROOTS = "drive_roots"
 
-        fun newInstance(driveRoot: File): BrowseFragment = BrowseFragment().apply {
-            arguments = Bundle().apply { putString(ARG_DRIVE_ROOT, driveRoot.absolutePath) }
+        fun newInstance(driveRoots: List<File>): BrowseFragment = BrowseFragment().apply {
+            arguments = Bundle().apply {
+                putStringArray(
+                    ARG_DRIVE_ROOTS,
+                    driveRoots.map(File::getAbsolutePath).toTypedArray(),
+                )
+            }
         }
     }
 }
