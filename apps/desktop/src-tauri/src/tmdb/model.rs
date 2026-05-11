@@ -112,3 +112,33 @@ impl TvDetails {
         self.episode_run_time.first().copied()
     }
 }
+
+/// One element of `/tv/{id}/season/{n}` -> `episodes`. Only the fields
+/// the linker actually persists are pulled out; TMDB returns much more
+/// that we deliberately drop on the floor (vote_average, crew, …).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TmdbEpisode {
+    pub episode_number: i64,
+    pub season_number: i64,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub overview: Option<String>,
+    #[serde(default)]
+    pub air_date: Option<String>,
+    /// In minutes. TMDB occasionally returns 0 for unaired episodes —
+    /// callers should treat 0 as "unknown" and store NULL.
+    #[serde(default)]
+    pub runtime: Option<i64>,
+    /// Relative path, e.g. `/abc.jpg`. NULL on episodes TMDB has no
+    /// still for (very common on recent or obscure seasons).
+    #[serde(default)]
+    pub still_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SeasonDetails {
+    pub season_number: i64,
+    #[serde(default)]
+    pub episodes: Vec<TmdbEpisode>,
+}

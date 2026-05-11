@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLibrary } from "@/stores/library";
-import { api, type GenreRow } from "@/lib/tauri";
+import { api, type EpisodeRow, type GenreRow } from "@/lib/tauri";
 import SearchDialog from "./SearchDialog";
+import RecatalogDialog from "./RecatalogDialog";
 import GenreEditor from "./GenreEditor";
 import { formatBytes } from "@/lib/format";
 
@@ -28,15 +29,31 @@ export default function RightPanel() {
   const [totalBytes, setTotalBytes] = useState<number | null>(null);
   const [hasOriginals, setHasOriginals] = useState(false);
   const [cleaningUp, setCleaningUp] = useState(false);
+  // Mirrors `row.is_new` but updated optimistically so toggling the
+  // chip is instant.
+  const [isNew, setIsNew] = useState(false);
+  const [episodes, setEpisodes] = useState<EpisodeRow[]>([]);
+  const [recatalogOpen, setRecatalogOpen] = useState(false);
+  const [recatalogReport, setRecatalogReport] = useState<string | null>(null);
 
   useEffect(() => {
     setRenaming(false);
     setEditingGenres(false);
     setUnlinkConfirm(false);
+    setRecatalogOpen(false);
+    setRecatalogReport(null);
     setError(null);
     if (selection?.kind === "media") {
       setNewTitle(selection.row.title);
+      setIsNew(selection.row.is_new);
+      setEpisodes([]);
       const id = selection.row.id;
+      if (selection.row.media_type === "tv") {
+        void api
+          .listEpisodes(id)
+          .then(setEpisodes)
+          .catch(() => setEpisodes([]));
+      }
       void api
         .listMediaGenres(id)
         .then(setGenres)
@@ -188,6 +205,19 @@ export default function RightPanel() {
           <dd>
             {totalBytes != null ? formatBytes(totalBytes) : "…"}
           </dd>
+          {row.catalogued_at && (
+            <>
+              <dt className="text-neutral-500">
+                {t("media.catalogued_at", "Catalogued")}
+              </dt>
+              <dd
+                className="text-xs"
+                title={row.catalogued_at}
+              >
+                {row.catalogued_at.slice(0, 10)}
+              </dd>
+            </>
+          )}
           <dt className="text-neutral-500">Path</dt>
           <dd className="break-all text-xs">
             {baseUrl}
@@ -195,6 +225,26 @@ export default function RightPanel() {
             {row.folder_path}
           </dd>
         </dl>
+
+        <label className="flex w-fit cursor-pointer items-center gap-2 text-xs text-neutral-300">
+          <input
+            type="checkbox"
+            checked={isNew}
+            onChange={async (e) => {
+              const next = e.target.checked;
+              setIsNew(next);
+              try {
+                await api.setMediaIsNew(row.id, next);
+                await refresh();
+              } catch (err) {
+                setIsNew(!next);
+                setError((err as Error).message);
+              }
+            }}
+            className="h-4 w-4 cursor-pointer accent-accent"
+          />
+          {t("media.mark_as_new", "Mark as new")}
+        </label>
 
         <div>
           {editingGenres ? (
@@ -247,6 +297,33 @@ export default function RightPanel() {
           )}
         </div>
 
+        {row.media_type === "tv" && episodes.length > 0 && (
+          <details className="rounded border border-neutral-800 bg-neutral-900/40">
+            <summary className="cursor-pointer select-none px-3 py-2 text-xs uppercase tracking-wide text-neutral-400">
+              {t("media.episodes", "Episodes")} ({episodes.length})
+            </summary>
+            <ul className="max-h-64 divide-y divide-neutral-800/60 overflow-y-auto text-xs">
+              {episodes.map((ep) => (
+                <li
+                  key={ep.id}
+                  className="flex items-baseline gap-2 px-3 py-1.5"
+                >
+                  <span className="font-mono text-accent">
+                    S{String(ep.season_number).padStart(2, "0")}E
+                    {String(ep.episode_number).padStart(2, "0")}
+                  </span>
+                  <span className="flex-1 truncate text-neutral-200">
+                    {ep.title ?? "—"}
+                  </span>
+                  {ep.air_date && (
+                    <span className="text-neutral-500">{ep.air_date}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+
         {error && (
           <div className="rounded bg-red-900/40 px-3 py-2 text-sm text-red-200">
             {error}
@@ -269,6 +346,18 @@ export default function RightPanel() {
           >
             {t("actions.search")}
           </button>
+          {row.media_type === "tv" && (
+            <button
+              className="rounded border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-800"
+              onClick={() => setRecatalogOpen(true)}
+              title={t(
+                "actions.recatalog_help",
+                "Re-fetch TMDB metadata for this series. Useful for older catalog rows that pre-date per-episode storage.",
+              )}
+            >
+              {t("actions.recatalog", "Re-Catalog")}
+            </button>
+          )}
           <button
             className="rounded border border-red-900/60 px-3 py-1.5 text-sm text-red-300 hover:bg-red-900/30"
             onClick={() => setUnlinkConfirm(true)}
@@ -305,6 +394,12 @@ export default function RightPanel() {
           )}
         </div>
 
+
+        {recatalogReport && (
+          <div className="rounded border border-emerald-900/60 bg-emerald-900/20 px-3 py-2 text-sm text-emerald-100">
+            {recatalogReport}
+          </div>
+        )}
 
         {unlinkConfirm && (
           <div className="rounded border border-red-900/60 bg-red-900/20 p-3 text-sm text-red-100">
@@ -354,6 +449,48 @@ export default function RightPanel() {
             onLinked={async () => {
               setSearchOpen(false);
               await refresh();
+            }}
+          />
+        )}
+
+        {recatalogOpen && (
+          <RecatalogDialog
+            media={row}
+            onClose={() => setRecatalogOpen(false)}
+            onDone={async (result) => {
+              setRecatalogOpen(false);
+              setRecatalogReport(
+                t(
+                  "series.recatalog_done",
+                  "Re-cataloged {{seasons}} season(s), {{episodes}} episode(s). Renamed {{renamed}}, stills downloaded {{stills}}.{{skippedHint}}",
+                  {
+                    seasons: result.seasons_processed,
+                    episodes: result.episodes_processed,
+                    renamed: result.episodes_renamed,
+                    stills: result.stills_downloaded,
+                    skippedHint:
+                      result.skipped.length > 0
+                        ? t(
+                            "series.recatalog_skipped",
+                            " Skipped {{count}} file(s): {{names}}",
+                            {
+                              count: result.skipped.length,
+                              names: result.skipped.slice(0, 3).join(", ")
+                                + (result.skipped.length > 3 ? "…" : ""),
+                            },
+                          )
+                        : "",
+                  },
+                ),
+              );
+              await refresh();
+              // Refresh the episodes section without changing selection.
+              try {
+                const eps = await api.listEpisodes(row.id);
+                setEpisodes(eps);
+              } catch {
+                /* non-fatal */
+              }
             }}
           />
         )}

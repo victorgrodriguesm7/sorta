@@ -232,6 +232,7 @@ mod tests {
                 poster_path: None,
                 poster_url: None,
                 folder_path: "Movies/Action/T [tmdb-1]",
+                is_new: false,
             },
         )
         .await
@@ -270,6 +271,7 @@ mod tests {
                 poster_path: None,
                 poster_url: None,
                 folder_path: "Movies/Action/T [tmdb-1]",
+                is_new: false,
             },
         )
         .await
@@ -304,6 +306,7 @@ mod tests {
                 poster_path: None,
                 poster_url: None,
                 folder_path: "Movies/Action/T [tmdb-1]",
+                is_new: false,
             },
         )
         .await

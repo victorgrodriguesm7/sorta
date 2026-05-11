@@ -80,6 +80,9 @@ export default function CatalogAsSeriesDialog({
   const [season, setSeason] = useState<number>(1);
   const [startEpisode, setStartEpisode] = useState<number>(1);
   const [rename, setRename] = useState<boolean>(true);
+  const [downloadEpisodePosters, setDownloadEpisodePosters] =
+    useState<boolean>(true);
+  const [isNew, setIsNew] = useState<boolean>(false);
   // Episodes in apply order. Initial order = walker order.
   const [order, setOrder] = useState<UncataloguedItem[]>(episodes);
   // Per-row checkboxes for multi-select reorder (separate from the
@@ -219,6 +222,8 @@ export default function CatalogAsSeriesDialog({
         season,
         startEpisode,
         rename,
+        downloadEpisodePosters,
+        isNew,
         sources: order.map((e) => ({
           folder: e.folder,
           videoFilename: e.video_filename,
@@ -348,7 +353,45 @@ export default function CatalogAsSeriesDialog({
                   onChange={(e) => setRename(e.target.checked)}
                   className="h-4 w-4 cursor-pointer accent-accent"
                 />
-                {t("series.rename_to_standard", "Rename to S{XX}E{YY}")}
+                {t(
+                  "series.rename_to_standard",
+                  "Rename to S{XX}E{YY}.{Title}",
+                )}
+              </label>
+              <label
+                className="flex cursor-pointer items-center gap-2 text-xs text-neutral-300"
+                title={t(
+                  "series.download_episode_posters_help",
+                  "Fetch one TMDB still per episode at link time.",
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={downloadEpisodePosters}
+                  onChange={(e) =>
+                    setDownloadEpisodePosters(e.target.checked)
+                  }
+                  className="h-4 w-4 cursor-pointer accent-accent"
+                />
+                {t(
+                  "series.download_episode_posters",
+                  "Download episode stills",
+                )}
+              </label>
+              <label
+                className="flex cursor-pointer items-center gap-2 text-xs text-neutral-300"
+                title={t(
+                  "media.mark_as_new_help",
+                  "Flag this item as new so the TV reader highlights it.",
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={isNew}
+                  onChange={(e) => setIsNew(e.target.checked)}
+                  className="h-4 w-4 cursor-pointer accent-accent"
+                />
+                {t("media.mark_as_new", "Mark as new")}
               </label>
             </div>
             <div

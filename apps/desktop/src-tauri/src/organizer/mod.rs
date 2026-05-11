@@ -6,9 +6,11 @@
 pub mod execute;
 pub mod naming;
 pub mod plan;
+pub mod recatalog;
 pub mod sidecars;
 
 pub use execute::*;
 pub use naming::*;
 pub use plan::*;
+pub use recatalog::*;
 pub use sidecars::*;

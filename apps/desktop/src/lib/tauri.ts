@@ -46,6 +46,51 @@ export interface MediaRow {
   poster_path: string | null;
   poster_url: string | null;
   folder_path: string;
+  /** ISO 8601 UTC timestamp set by the DB when the row was inserted. */
+  catalogued_at: string;
+  /** "Mark as new" flag set at cataloging time. */
+  is_new: boolean;
+}
+
+export interface RecatalogPlanSeason {
+  season_number: number;
+  season_folder: string;
+  video_filenames: string[];
+}
+
+export interface RecatalogPlan {
+  media_id: number;
+  tmdb_id: number;
+  title: string;
+  poster_path: string | null;
+  poster_url: string | null;
+  series_folder: string;
+  seasons: RecatalogPlanSeason[];
+}
+
+export interface RecatalogResult {
+  seasons_processed: number;
+  episodes_processed: number;
+  episodes_renamed: number;
+  stills_downloaded: number;
+  skipped: string[];
+}
+
+export interface EpisodeRow {
+  id: number;
+  media_id: number;
+  season_number: number;
+  episode_number: number;
+  title: string | null;
+  overview: string | null;
+  air_date: string | null;
+  runtime_minutes: number | null;
+  /** Cached still image, relative to the HD root. */
+  still_path: string | null;
+  /** TMDB CDN fallback URL. */
+  still_url: string | null;
+  /** Video file, relative to the HD root. */
+  file_path: string | null;
 }
 
 export interface GenreRow {
@@ -115,6 +160,7 @@ export const api = {
     videoFilename: string;
     tmdbId: number;
     mediaType: MediaType;
+    isNew?: boolean;
   }) =>
     invoke<{ media_id: number; folder_path: string }>("link_media", {
       args: {
@@ -122,6 +168,7 @@ export const api = {
         video_filename: args.videoFilename,
         tmdb_id: args.tmdbId,
         media_type: args.mediaType,
+        is_new: args.isNew ?? false,
       },
     }),
   renameMedia: (mediaId: number, newTitle: string) =>
@@ -141,6 +188,8 @@ export const api = {
     season: number;
     startEpisode?: number;
     rename?: boolean;
+    downloadEpisodePosters?: boolean;
+    isNew?: boolean;
     sources: { folder: string; videoFilename: string }[];
   }) =>
     invoke<{
@@ -154,10 +203,32 @@ export const api = {
         season: args.season,
         start_episode: args.startEpisode ?? 1,
         rename: args.rename ?? true,
+        download_episode_posters: args.downloadEpisodePosters ?? true,
+        is_new: args.isNew ?? false,
         sources: args.sources.map((s) => ({
           folder: s.folder,
           video_filename: s.videoFilename,
         })),
+      },
+    }),
+  listEpisodes: (mediaId: number) =>
+    invoke<EpisodeRow[]>("list_episodes", { mediaId }),
+  setMediaIsNew: (mediaId: number, isNew: boolean) =>
+    invoke<void>("set_media_is_new", { mediaId, isNew }),
+  planRecatalogSeries: (mediaId: number) =>
+    invoke<RecatalogPlan>("plan_recatalog_series", { mediaId }),
+  recatalogSeries: (args: {
+    mediaId: number;
+    rename?: boolean;
+    downloadEpisodePosters?: boolean;
+    setIsNew?: boolean | null;
+  }) =>
+    invoke<RecatalogResult>("recatalog_series", {
+      args: {
+        media_id: args.mediaId,
+        rename: args.rename ?? true,
+        download_episode_posters: args.downloadEpisodePosters ?? true,
+        set_is_new: args.setIsNew ?? null,
       },
     }),
   updateSeasonLabel: (label: string) =>

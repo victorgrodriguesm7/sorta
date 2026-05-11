@@ -112,6 +112,36 @@ impl TmdbClient {
             .map_err(|e| AppError::Other(format!("tmdb get_tv decode: {e}")))
     }
 
+    /// Fetch one season's worth of episodes from TMDB. Used at series
+    /// link time to populate the per-episode `episodes` table with
+    /// real titles + still images. TMDB returns the season as a
+    /// single JSON blob with an `episodes` array — no pagination.
+    pub async fn get_season(&self, tv_id: i64, season: i64) -> AppResult<SeasonDetails> {
+        let url = format!("{}/tv/{}/season/{}", self.base_url, tv_id, season);
+        self.http
+            .get(&url)
+            .query(&[
+                ("api_key", self.api_key.as_str()),
+                ("language", self.language.as_str()),
+            ])
+            .send()
+            .await
+            .map_err(|e| AppError::Other(format!("tmdb get_season: {e}")))?
+            .error_for_status()
+            .map_err(|e| AppError::Other(format!("tmdb get_season status: {e}")))?
+            .json::<SeasonDetails>()
+            .await
+            .map_err(|e| AppError::Other(format!("tmdb get_season decode: {e}")))
+    }
+
+    /// Build a TMDB still URL from a `still_path`. Stills share the same
+    /// `/t/p/<size>/<path>` shape as posters; `w300` is the size the
+    /// reader uses for episode cards.
+    pub fn still_url(still_path: &str, size: &str) -> String {
+        let trimmed = still_path.trim_start_matches('/');
+        format!("{IMG_BASE_URL}/{size}/{trimmed}")
+    }
+
     /// Fetch the full genre list for a media type. The result is a stable
     /// ordering by id; callers can cache it locally.
     pub async fn list_genres(&self, media_type: MediaType) -> AppResult<Vec<Genre>> {
@@ -285,6 +315,54 @@ mod tests {
         let genres = client.list_genres(MediaType::Movie).await.unwrap();
         assert_eq!(genres.len(), 2);
         assert_eq!(genres[0].name, "Ação");
+    }
+
+    #[tokio::test]
+    async fn get_season_parses_episodes_array() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/tv/1399/season/1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "season_number": 1,
+                "episodes": [
+                    {
+                        "episode_number": 1,
+                        "season_number": 1,
+                        "name": "Winter Is Coming",
+                        "overview": "...",
+                        "air_date": "2011-04-17",
+                        "runtime": 62,
+                        "still_path": "/x.jpg"
+                    },
+                    {
+                        "episode_number": 2,
+                        "season_number": 1,
+                        "name": "The Kingsroad",
+                        "still_path": null
+                    }
+                ]
+            })))
+            .mount(&server)
+            .await;
+
+        let client = TmdbClient::with_base_url("k", server.uri());
+        let season = client.get_season(1399, 1).await.unwrap();
+        assert_eq!(season.season_number, 1);
+        assert_eq!(season.episodes.len(), 2);
+        assert_eq!(season.episodes[0].name.as_deref(), Some("Winter Is Coming"));
+        assert_eq!(season.episodes[0].runtime, Some(62));
+        assert_eq!(season.episodes[0].still_path.as_deref(), Some("/x.jpg"));
+        // Missing fields tolerated.
+        assert!(season.episodes[1].still_path.is_none());
+        assert!(season.episodes[1].overview.is_none());
+    }
+
+    #[test]
+    fn still_url_handles_leading_slash() {
+        assert_eq!(
+            TmdbClient::still_url("/abc.jpg", "w300"),
+            format!("{IMG_BASE_URL}/w300/abc.jpg")
+        );
     }
 
     #[test]
