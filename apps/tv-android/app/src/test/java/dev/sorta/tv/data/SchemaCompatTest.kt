@@ -10,21 +10,31 @@ class SchemaCompatTest {
 
     @Test
     fun matchingVersionsAreOk() {
-        assertEquals(SchemaCompat.Result.Ok, SchemaCompat.isCompatible(3, 3))
+        assertEquals(SchemaCompat.Result.Ok, SchemaCompat.isCompatible(4, 4))
     }
 
     @Test
     fun olderOnDiskIsTolerated() {
-        val result = SchemaCompat.isCompatible(onDisk = 2, known = 3)
-        assertEquals(SchemaCompat.Result.OnDiskOlderTolerated(2, 3), result)
+        // A v3 drive (no episodes table, no is_new column) is still
+        // openable; the reader degrades the Recently Added row + the
+        // per-episode view but every other surface keeps working.
+        val result = SchemaCompat.isCompatible(onDisk = 3, known = 4)
+        assertEquals(SchemaCompat.Result.OnDiskOlderTolerated(3, 4), result)
         assertFalse(result.shouldRefuse())
     }
 
     @Test
     fun newerOnDiskIsRefused() {
-        val result = SchemaCompat.isCompatible(onDisk = 4, known = 3)
-        assertEquals(SchemaCompat.Result.OnDiskNewer(4, 3), result)
+        val result = SchemaCompat.isCompatible(onDisk = 5, known = 4)
+        assertEquals(SchemaCompat.Result.OnDiskNewer(5, 4), result)
         assertTrue(result.shouldRefuse())
+    }
+
+    @Test
+    fun knownVersionMatchesDesktopSchemaV4() {
+        // Locked in alongside the desktop's CURRENT_SCHEMA_VERSION = 4
+        // and migration 0004_episodes_and_flags.sql. Bump in sync.
+        assertEquals(4, SchemaCompat.KNOWN_SCHEMA_VERSION)
     }
 
     @Test

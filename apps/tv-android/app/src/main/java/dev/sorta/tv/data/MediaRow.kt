@@ -17,6 +17,18 @@ data class MediaRow(
     val posterUrl: String?,
     /** Path relative to the HD root, e.g. `Movies/Action/X [tmdb-1]`. */
     val folderPath: String,
+    /**
+     * ISO 8601 UTC timestamp (`2026-05-11T12:34:56Z`) the desktop
+     * stamped when the row was inserted. Null on v3 drives that
+     * predate the column — `MediaRepository` substitutes null
+     * silently when reading older fixtures.
+     */
+    val cataloguedAt: String? = null,
+    /**
+     * "Mark as new" flag the user set at cataloging time. Drives
+     * the Recently Added row on the browse screen.
+     */
+    val isNew: Boolean = false,
 )
 
 enum class MediaType(val sqlValue: String) {

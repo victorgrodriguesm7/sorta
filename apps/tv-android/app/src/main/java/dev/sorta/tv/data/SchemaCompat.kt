@@ -12,8 +12,17 @@ package dev.sorta.tv.data
  */
 object SchemaCompat {
 
-    /** The latest on-disk schema this reader build understands. */
-    const val KNOWN_SCHEMA_VERSION: Int = 3
+    /**
+     * The latest on-disk schema this reader build understands. Bumped
+     * in lockstep with the desktop's `CURRENT_SCHEMA_VERSION`. Version
+     * 4 adds:
+     *   - `media.is_new` + `media.catalogued_at`
+     *   - the `episodes` table (per-episode TMDB metadata + stills)
+     *
+     * v3 drives keep opening — the new columns/table are read with
+     * graceful fallbacks (see `MediaRepository`).
+     */
+    const val KNOWN_SCHEMA_VERSION: Int = 4
 
     sealed interface Result {
         /** Versions match exactly — proceed. */

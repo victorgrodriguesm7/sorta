@@ -67,7 +67,8 @@ class MediaRepository internal constructor(
         val primaryClause = if (primaryOnly) "AND mg.is_primary = 1" else ""
         val sql = """
             SELECT m.id, m.tmdb_id, m.media_type, m.title, m.original_title,
-                   m.runtime_minutes, m.poster_path, m.poster_url, m.folder_path
+                   m.runtime_minutes, m.poster_path, m.poster_url, m.folder_path,
+                   m.catalogued_at, m.is_new
             FROM media m
             INNER JOIN media_genres mg ON mg.media_id = m.id
             WHERE m.media_type = 'movie' AND mg.genre_id = ?
@@ -81,7 +82,8 @@ class MediaRepository internal constructor(
     fun listSeries(): List<MediaRow> {
         val sql = """
             SELECT id, tmdb_id, media_type, title, original_title,
-                   runtime_minutes, poster_path, poster_url, folder_path
+                   runtime_minutes, poster_path, poster_url, folder_path,
+                   catalogued_at, is_new
             FROM media
             WHERE media_type = 'tv'
             ORDER BY title COLLATE NOCASE
@@ -99,13 +101,65 @@ class MediaRepository internal constructor(
         val pattern = "%${query.trim().sqlLikeEscape()}%"
         val sql = """
             SELECT id, tmdb_id, media_type, title, original_title,
-                   runtime_minutes, poster_path, poster_url, folder_path
+                   runtime_minutes, poster_path, poster_url, folder_path,
+                   catalogued_at, is_new
             FROM media
             WHERE title LIKE ? ESCAPE '\'
                OR original_title LIKE ? ESCAPE '\'
             ORDER BY title COLLATE NOCASE
         """.trimIndent()
         return db.rawQuery(sql, arrayOf(pattern, pattern)).use { it.toMediaRows() }
+    }
+
+    /**
+     * Every episode of a series, sorted by `(season_number, episode_number)`.
+     * Returns an empty list when the `episodes` table is missing (v3
+     * drive) or when the row simply has no episode metadata yet —
+     * callers handle both cases by falling back to a filesystem walk.
+     */
+    fun listEpisodes(mediaId: Long): List<EpisodeRow> {
+        val sql = """
+            SELECT id, media_id, season_number, episode_number,
+                   title, overview, air_date, runtime_minutes,
+                   still_path, still_url, file_path
+            FROM episodes
+            WHERE media_id = ?
+            ORDER BY season_number, episode_number
+        """.trimIndent()
+        return try {
+            db.rawQuery(sql, arrayOf(mediaId.toString())).use { it.toEpisodeRows() }
+        } catch (e: android.database.sqlite.SQLiteException) {
+            // `no such table: episodes` on pre-v4 drives. Surface as
+            // empty rather than crashing the UI.
+            emptyList()
+        }
+    }
+
+    /**
+     * Movies that:
+     *   - have `is_new = 1` (user flagged them at cataloging time), AND
+     *   - were catalogued at or after [sinceIsoTimestamp] (e.g. now − 14d).
+     *
+     * Both conditions are AND-ed — flipping `is_new` on an older row
+     * doesn't drag it back into the recently-added bucket. Returns an
+     * empty list on v3 drives that don't have the columns.
+     */
+    fun listRecentlyAddedMovies(sinceIsoTimestamp: String): List<MediaRow> {
+        val sql = """
+            SELECT id, tmdb_id, media_type, title, original_title,
+                   runtime_minutes, poster_path, poster_url, folder_path,
+                   catalogued_at, is_new
+            FROM media
+            WHERE media_type = 'movie'
+              AND is_new = 1
+              AND catalogued_at >= ?
+            ORDER BY catalogued_at DESC
+        """.trimIndent()
+        return try {
+            db.rawQuery(sql, arrayOf(sinceIsoTimestamp)).use { it.toMediaRows() }
+        } catch (e: android.database.sqlite.SQLiteException) {
+            emptyList()
+        }
     }
 
     /** Read a single `settings` value, or null if the key is unknown. */
@@ -152,6 +206,13 @@ private fun android.database.Cursor.getStringOrNull(index: Int): String? =
 private fun String?.posixPath(): String? = this?.replace('\\', '/')
 
 private fun android.database.Cursor.toMediaRows(): List<MediaRow> = use { c ->
+    // catalogued_at + is_new were added in v4. v3 drives don't select
+    // them (the queries here all reference them, but if a caller
+    // hand-rolls a SELECT without those columns the indices will be
+    // out of range — guard with column lookups instead of positional
+    // reads).
+    val cataloguedAtIdx = c.getColumnIndex("catalogued_at")
+    val isNewIdx = c.getColumnIndex("is_new")
     buildList {
         while (c.moveToNext()) {
             add(
@@ -165,6 +226,34 @@ private fun android.database.Cursor.toMediaRows(): List<MediaRow> = use { c ->
                     posterPath = c.getStringOrNull(6).posixPath(),
                     posterUrl = c.getStringOrNull(7),
                     folderPath = c.getString(8).posixPath()!!,
+                    cataloguedAt = if (cataloguedAtIdx >= 0 && !c.isNull(cataloguedAtIdx)) {
+                        c.getString(cataloguedAtIdx).takeIf { it.isNotEmpty() }
+                    } else null,
+                    isNew = if (isNewIdx >= 0 && !c.isNull(isNewIdx)) {
+                        c.getInt(isNewIdx) != 0
+                    } else false,
+                )
+            )
+        }
+    }
+}
+
+private fun android.database.Cursor.toEpisodeRows(): List<EpisodeRow> = use { c ->
+    buildList {
+        while (c.moveToNext()) {
+            add(
+                EpisodeRow(
+                    id = c.getLong(0),
+                    mediaId = c.getLong(1),
+                    seasonNumber = c.getInt(2),
+                    episodeNumber = c.getInt(3),
+                    title = c.getStringOrNull(4),
+                    overview = c.getStringOrNull(5),
+                    airDate = c.getStringOrNull(6),
+                    runtimeMinutes = if (c.isNull(7)) null else c.getInt(7),
+                    stillPath = c.getStringOrNull(8).posixPath(),
+                    stillUrl = c.getStringOrNull(9),
+                    filePath = c.getStringOrNull(10).posixPath(),
                 )
             )
         }
