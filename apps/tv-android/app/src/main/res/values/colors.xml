@@ -12,6 +12,6 @@
          on watched cards). Same accent indigo as the rest of the
          app, lifted into its own name so the overlay rendering can
          re-theme without touching focus rings. -->
-    <color name="progress_overlay_accent">#FF6366F1</color>
+    <color name="progress_overlay_accent">#FFD35400</color>
     <color name="progress_overlay_pill_bg">#CC000000</color>
 </resources>

@@ -45,7 +45,11 @@ class BrowseActivity : FragmentActivity() {
 
     private fun showFor(result: CatalogCheck.Result) {
         val fragment = when (result) {
-            is CatalogCheck.Result.Ok -> BrowseFragment.newInstance(result.driveRoot)
+            // Phase A.4 will fan BrowseFragment out across every entry
+            // in driveRoots. For now we hand it the first drive so the
+            // CatalogCheck refactor lands as its own atomic commit
+            // without breaking the build.
+            is CatalogCheck.Result.Ok -> BrowseFragment.newInstance(result.driveRoots.first())
             CatalogCheck.Result.NoDrive -> CatalogErrorFragment.forNoDrive(this)
             is CatalogCheck.Result.MissingDb -> CatalogErrorFragment.forMissingDb(this)
             is CatalogCheck.Result.SchemaTooNew ->
