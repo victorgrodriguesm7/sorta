@@ -5,11 +5,13 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::db::episodes::{upsert_episode, NewEpisode};
 use crate::db::genres::{
     list_genres, primary_genre_for, set_media_genres, upsert_genre, GenreRow,
 };
 use crate::db::media::{
-    find_by_id, find_by_tmdb_id, insert_media, update_folder_path, MediaRow, MediaType, NewMedia,
+    find_by_id, find_by_tmdb_id, insert_media, set_is_new, update_folder_path, MediaRow,
+    MediaType, NewMedia,
 };
 use crate::db::settings::{
     get_setting_or, KEY_MOVIES_LABEL, KEY_SEASON_LABEL, KEY_SERIES_LABEL,
@@ -30,12 +32,43 @@ pub struct LinkArgs {
     /// TMDB id of the work to link to.
     pub tmdb_id: i64,
     pub media_type: String,
+    /// Value of the "Mark as new" checkbox at cataloging time.
+    /// Defaults to false so older callers continue to work.
+    #[serde(default)]
+    pub is_new: bool,
 }
 
 #[derive(Debug, Serialize)]
 pub struct LinkResult {
     pub media_id: i64,
     pub folder_path: PathBuf,
+}
+
+/// Download one episode still into `<HD>/poster/episodes/` and return
+/// its relative path. Naming convention: `{tv_id}_s{NN}e{NN}.jpg` —
+/// stable, matches the on-disk folder/file layout, and keeps the
+/// episode directory flat so the reader can mass-iterate it cheaply.
+async fn save_episode_still(
+    hd_root: &Path,
+    tv_id: i64,
+    season: i64,
+    episode: i64,
+    still_path: &str,
+) -> AppResult<String> {
+    let dest_dir = hd_root.join("poster").join("episodes");
+    std::fs::create_dir_all(&dest_dir).map_err(AppError::from)?;
+    let url = TmdbClient::still_url(still_path, "w300");
+    let bytes = reqwest::get(&url)
+        .await
+        .map_err(|e| AppError::Other(format!("episode still download: {e}")))?
+        .error_for_status()
+        .map_err(|e| AppError::Other(format!("episode still status: {e}")))?
+        .bytes()
+        .await
+        .map_err(|e| AppError::Other(format!("episode still body: {e}")))?;
+    let rel = format!("poster/episodes/{tv_id}_s{season:02}e{episode:02}.jpg");
+    std::fs::write(hd_root.join(&rel), &bytes).map_err(AppError::from)?;
+    Ok(rel)
 }
 
 async fn save_poster(
@@ -196,7 +229,7 @@ pub async fn link_media(state: State<'_, AppState>, args: LinkArgs) -> AppResult
             poster_path: poster_local.as_deref(),
             poster_url: poster_remote.as_deref(),
             folder_path: &folder_path_rel,
-            is_new: false,
+            is_new: args.is_new,
         },
     )
     .await?;
@@ -483,12 +516,28 @@ pub struct LinkAsSeriesArgs {
     /// season X, episode start_episode + i. Defaults to 1.
     #[serde(default = "default_start_episode")]
     pub start_episode: i64,
-    /// If true (default), each source file is renamed to S{XX}E{YY}.{ext}
-    /// when moved into the season folder. If false, the original
-    /// filename is kept verbatim — useful when the user already has a
-    /// custom naming scheme they want to preserve.
+    /// If true (default), each source file is renamed to
+    /// `S{XX}E{YY}.{Title}.{ext}` when moved into the season folder.
+    /// The `{Title}` segment is the TMDB episode title (sanitized);
+    /// it's omitted when TMDB doesn't have a title for that episode.
+    /// If false, the original filename is kept verbatim — useful when
+    /// the user already has a custom naming scheme they want to
+    /// preserve.
     #[serde(default = "default_true_series")]
     pub rename: bool,
+    /// If true (default), the linker fetches one TMDB still image per
+    /// episode and stores it under `<HD>/poster/episodes/`. Disable to
+    /// skip the network roundtrips when you don't care about per-
+    /// episode artwork in the reader — the episode rows are still
+    /// created, just without `still_path` filled.
+    #[serde(default = "default_true_series")]
+    pub download_episode_posters: bool,
+    /// "Mark as new" checkbox value. Only honoured when the series row
+    /// is freshly created — re-linking more episodes onto an already-
+    /// catalogued series leaves the existing flag alone, so users
+    /// can't accidentally toggle it off by linking a new season.
+    #[serde(default)]
+    pub is_new: bool,
     /// Source files in the order they should become E{start}, E{start+1}, ...
     pub sources: Vec<EpisodeSourceArg>,
 }
@@ -551,6 +600,14 @@ pub async fn link_as_series(
     let season_label = get_setting_or(&pool, KEY_SEASON_LABEL, "Season").await?;
     let series_root = hd_root.join(sanitize_segment(&series_label));
 
+    // Fetch the season metadata up-front: we need it before renaming
+    // files (titles go into the filename) and before inserting rows
+    // (titles, overviews, stills go into the episodes table). A failed
+    // fetch is fatal — the user explicitly asked for series-aware
+    // cataloging, and silently dropping back to numeric-only names
+    // would be surprising.
+    let season_details = tmdb.get_season(args.tmdb_id, args.season).await.ok();
+
     // Either reuse the existing series folder or create a fresh one.
     let existing = find_by_tmdb_id(&pool, args.tmdb_id, MediaType::Tv).await?;
     let (media_id, series_folder, title) = if let Some(row) = existing {
@@ -603,7 +660,7 @@ pub async fn link_as_series(
                 poster_path: poster_local.as_deref(),
                 poster_url: poster_remote.as_deref(),
                 folder_path: &folder_rel,
-                is_new: false,
+                is_new: args.is_new,
             },
         )
         .await?;
@@ -626,16 +683,42 @@ pub async fn link_as_series(
         series_folder.join(format!("{} {}", sanitize_segment(&season_label), args.season));
     std::fs::create_dir_all(&season_folder).map_err(AppError::from)?;
 
+    // Lookup table: episode_number -> TMDB metadata. We pulled this
+    // once up-front so the rename loop doesn't make a request per file.
+    let by_number: std::collections::HashMap<i64, &crate::tmdb::TmdbEpisode> = season_details
+        .as_ref()
+        .map(|d| d.episodes.iter().map(|e| (e.episode_number, e)).collect())
+        .unwrap_or_default();
+
     let mut moved = 0usize;
     for (idx, src) in args.sources.iter().enumerate() {
         let episode_no = args.start_episode + idx as i64;
         let from = src.folder.join(&src.video_filename);
+        let tmdb_ep = by_number.get(&episode_no).copied();
+        let ep_title = tmdb_ep
+            .and_then(|e| e.name.as_deref())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+
         let new_name = if args.rename {
             let ext = std::path::Path::new(&src.video_filename)
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("mkv");
-            format!("S{:02}E{:02}.{}", args.season, episode_no, ext)
+            // S{XX}E{YY}[.Title].ext. The title segment is sanitized
+            // (illegal-on-Windows chars stripped) before being folded
+            // in. When TMDB has no title we fall back to the bare
+            // S{XX}E{YY}.ext form rather than emit `..ext`.
+            match ep_title {
+                Some(t) => format!(
+                    "S{:02}E{:02}.{}.{}",
+                    args.season,
+                    episode_no,
+                    sanitize_segment(t),
+                    ext,
+                ),
+                None => format!("S{:02}E{:02}.{}", args.season, episode_no, ext),
+            }
         } else {
             // Preserve the original filename verbatim. Strip illegal
             // characters in case it contains anything that would break
@@ -660,6 +743,53 @@ pub async fn link_as_series(
             std::fs::remove_file(&from).map_err(AppError::from)?;
         }
         moved += 1;
+
+        // Per-episode metadata row + optional still download.
+        let still_remote = tmdb_ep
+            .and_then(|e| e.still_path.as_deref())
+            .map(|p| crate::tmdb::TmdbClient::still_url(p, "w300"));
+        let still_local = if args.download_episode_posters {
+            if let Some(p) = tmdb_ep.and_then(|e| e.still_path.as_deref()) {
+                match save_episode_still(&hd_root, args.tmdb_id, args.season, episode_no, p).await
+                {
+                    Ok(rel) => Some(rel),
+                    Err(e) => {
+                        tracing::warn!("episode still download failed: {e:?}");
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let file_rel = to
+            .strip_prefix(&hd_root)
+            .map(|p| p.to_string_lossy().to_string())
+            .ok();
+
+        let runtime_clean = tmdb_ep
+            .and_then(|e| e.runtime)
+            .filter(|m| *m > 0);
+
+        upsert_episode(
+            &pool,
+            &NewEpisode {
+                media_id,
+                season_number: args.season,
+                episode_number: episode_no,
+                title: ep_title,
+                overview: tmdb_ep.and_then(|e| e.overview.as_deref()),
+                air_date: tmdb_ep.and_then(|e| e.air_date.as_deref()),
+                runtime_minutes: runtime_clean,
+                still_path: still_local.as_deref(),
+                still_url: still_remote.as_deref(),
+                file_path: file_rel.as_deref(),
+            },
+        )
+        .await?;
     }
 
     crate::manifest::write_best_effort(&hd_root, &pool).await;
@@ -670,6 +800,36 @@ pub async fn link_as_series(
         season_folder,
         episodes_moved: moved,
     })
+}
+
+/// List every catalogued episode of a series, ordered by
+/// (season, episode). Used by the right-panel "Episodes" section.
+#[tauri::command]
+pub async fn list_episodes(
+    state: State<'_, AppState>,
+    media_id: i64,
+) -> AppResult<Vec<crate::db::episodes::EpisodeRow>> {
+    let pool = {
+        let s = state.read().await;
+        s.db.clone()
+            .ok_or_else(|| AppError::Other("DB not initialized".into()))?
+    };
+    crate::db::episodes::list_episodes(&pool, media_id).await
+}
+
+/// Toggle the user-controlled `is_new` flag on a media row.
+#[tauri::command]
+pub async fn set_media_is_new(
+    state: State<'_, AppState>,
+    media_id: i64,
+    is_new: bool,
+) -> AppResult<()> {
+    let pool = {
+        let s = state.read().await;
+        s.db.clone()
+            .ok_or_else(|| AppError::Other("DB not initialized".into()))?
+    };
+    set_is_new(&pool, media_id, is_new).await
 }
 
 /// Settings command: update the translatable Season label. The season
