@@ -29,6 +29,11 @@ export async function invoke<T>(
 export type MediaType = "movie" | "tv";
 
 export interface ConfigDto {
+  /** Every drive the user has registered. Empty before initial setup. */
+  hd_roots: string[];
+  /** Primary / "active" drive — equal to `hd_roots[0]` after the
+   *  backend's normalize pass. Kept for code paths that still assume
+   *  a single library while the multi-drive refactor lands. */
   hd_root: string | null;
   tmdb_api_key: string | null;
   ui_language: string;
@@ -127,6 +132,8 @@ export interface SearchResult {
 export const api = {
   getConfig: () => invoke<ConfigDto>("get_config"),
   setHdRoot: (path: string) => invoke<ConfigDto>("set_hd_root", { path }),
+  removeHdRoot: (path: string) =>
+    invoke<ConfigDto>("remove_hd_root", { path }),
   setApiKey: (apiKey: string) =>
     invoke<ConfigDto>("set_api_key", { apiKey }),
   setUiLanguage: (language: string) =>

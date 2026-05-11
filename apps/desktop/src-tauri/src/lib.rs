@@ -49,6 +49,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::config_cmds::get_config,
             commands::config_cmds::set_hd_root,
+            commands::config_cmds::remove_hd_root,
             commands::config_cmds::set_api_key,
             commands::config_cmds::set_ui_language,
             commands::config_cmds::set_compression_codec,

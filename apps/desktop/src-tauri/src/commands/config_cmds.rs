@@ -15,11 +15,30 @@ use crate::tmdb::TmdbClient;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigDto {
+    /// Every drive the user has registered. Frontend uses this for
+    /// the drive manager in Settings and to know whether the library
+    /// is multi-drive (≥ 2) for header affordances.
+    #[serde(default)]
+    pub hd_roots: Vec<PathBuf>,
+    /// Primary / "active" drive — `hd_roots[0]`. Kept populated for
+    /// callers (initial-setup flow, single-drive code paths) that
+    /// pre-date the multi-drive refactor.
     pub hd_root: Option<PathBuf>,
     pub tmdb_api_key: Option<String>,
     pub ui_language: String,
     pub initialized: bool,
     pub compression_codec: Option<String>,
+}
+
+fn to_dto(cfg: &UserConfig, initialized: bool) -> ConfigDto {
+    ConfigDto {
+        hd_roots: cfg.hd_roots.clone(),
+        hd_root: cfg.hd_root.clone(),
+        tmdb_api_key: cfg.tmdb_api_key.clone(),
+        ui_language: cfg.ui_language.clone(),
+        compression_codec: cfg.compression_codec.clone(),
+        initialized,
+    }
 }
 
 fn config_dir(app: &AppHandle) -> AppResult<PathBuf> {
@@ -32,15 +51,17 @@ fn config_dir(app: &AppHandle) -> AppResult<PathBuf> {
 pub async fn get_config(app: AppHandle, state: State<'_, AppState>) -> AppResult<ConfigDto> {
     let cfg = UserConfig::load(&config_dir(&app)?)?;
     let initialized = state.read().await.db.is_some();
-    Ok(ConfigDto {
-        hd_root: cfg.hd_root,
-        tmdb_api_key: cfg.tmdb_api_key,
-        ui_language: cfg.ui_language,
-        compression_codec: cfg.compression_codec,
-        initialized,
-    })
+    Ok(to_dto(&cfg, initialized))
 }
 
+/// Register [path] as a library drive. Adds it to `hd_roots` if not
+/// already present; the first drive added becomes the primary one
+/// `initialize_with` opens. Calling this with a path that's already
+/// registered is a no-op (the config stays untouched).
+///
+/// Pre–multi-drive callers (the initial-setup wizard) still hit this
+/// command — for them the very first call registers the only drive,
+/// matching the old single-drive behaviour exactly.
 #[tauri::command]
 pub async fn set_hd_root(
     app: AppHandle,
@@ -56,17 +77,45 @@ pub async fn set_hd_root(
 
     let dir = config_dir(&app)?;
     let mut cfg = UserConfig::load(&dir)?;
-    cfg.hd_root = Some(path.clone());
+    cfg.add_hd_root(path.clone());
     cfg.save(&dir)?;
 
     initialize_with(app.clone(), state.clone(), cfg.clone()).await?;
-    Ok(ConfigDto {
-        hd_root: cfg.hd_root,
-        tmdb_api_key: cfg.tmdb_api_key,
-        ui_language: cfg.ui_language,
-        compression_codec: cfg.compression_codec,
-        initialized: state.read().await.db.is_some(),
-    })
+    Ok(to_dto(&cfg, state.read().await.db.is_some()))
+}
+
+/// Remove [path] from the registered drive list. If the removed drive
+/// was the active primary one, the next drive in `hd_roots` (if any)
+/// takes over after re-initialization. No-op when [path] isn't
+/// registered.
+#[tauri::command]
+pub async fn remove_hd_root(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: PathBuf,
+) -> AppResult<ConfigDto> {
+    let dir = config_dir(&app)?;
+    let mut cfg = UserConfig::load(&dir)?;
+    let was_primary = cfg.hd_root.as_deref() == Some(path.as_path());
+    cfg.remove_hd_root(&path);
+    cfg.save(&dir)?;
+
+    if was_primary {
+        // The active pool now points at a drive we just unregistered;
+        // tear it down and re-initialise against the new primary (if
+        // any). Doing this synchronously means the next command sees
+        // a consistent state.
+        {
+            let mut s = state.write().await;
+            s.hd_root = None;
+            s.db = None;
+            s.watcher = None;
+        }
+        if cfg.hd_root.is_some() {
+            initialize_with(app.clone(), state.clone(), cfg.clone()).await?;
+        }
+    }
+    Ok(to_dto(&cfg, state.read().await.db.is_some()))
 }
 
 #[tauri::command]
@@ -85,13 +134,7 @@ pub async fn set_api_key(
         s.tmdb = Some(TmdbClient::new(api_key));
     }
 
-    Ok(ConfigDto {
-        hd_root: cfg.hd_root,
-        tmdb_api_key: cfg.tmdb_api_key,
-        ui_language: cfg.ui_language,
-        compression_codec: cfg.compression_codec,
-        initialized: state.read().await.db.is_some(),
-    })
+    Ok(to_dto(&cfg, state.read().await.db.is_some()))
 }
 
 #[derive(Debug, serde::Serialize)]
