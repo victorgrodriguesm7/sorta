@@ -1,7 +1,6 @@
 package dev.sorta.tv.data
 
 import android.database.sqlite.SQLiteDatabase
-import java.io.Closeable
 import java.io.File
 
 /**
@@ -28,14 +27,14 @@ class MediaRepository internal constructor(
      * [open] and supply the drive root).
      */
     private val driveRoot: File? = null,
-) : Closeable {
+) : Catalog {
 
     /**
      * Genres known on this drive, optionally filtered to one media
      * type. Sorted by display name (the user's translation, falling
      * back to canonical English) so callers can render rows in order.
      */
-    fun listGenres(mediaType: MediaType? = null): List<GenreRow> {
+    override fun listGenres(mediaType: MediaType?): List<GenreRow> {
         val (where, args) = if (mediaType != null) {
             "WHERE media_type = ?" to arrayOf(mediaType.sqlValue)
         } else {
@@ -72,7 +71,7 @@ class MediaRepository internal constructor(
      *
      * Sorted by display title.
      */
-    fun listMoviesByGenre(genreId: Long, primaryOnly: Boolean = true): List<MediaRow> {
+    override fun listMoviesByGenre(genreId: Long, primaryOnly: Boolean): List<MediaRow> {
         val primaryClause = if (primaryOnly) "AND mg.is_primary = 1" else ""
         val sql = """
             SELECT m.id, m.tmdb_id, m.media_type, m.title, m.original_title,
@@ -88,7 +87,7 @@ class MediaRepository internal constructor(
     }
 
     /** Every linked series, sorted by display title. */
-    fun listSeries(): List<MediaRow> {
+    override fun listSeries(): List<MediaRow> {
         val sql = """
             SELECT id, tmdb_id, media_type, title, original_title,
                    runtime_minutes, poster_path, poster_url, folder_path,
@@ -105,7 +104,7 @@ class MediaRepository internal constructor(
      * `original_title`. Returns rows of either media type, sorted by
      * display title. Empty / blank queries return an empty list.
      */
-    fun search(query: String): List<MediaRow> {
+    override fun search(query: String): List<MediaRow> {
         if (query.isBlank()) return emptyList()
         val pattern = "%${query.trim().sqlLikeEscape()}%"
         val sql = """
@@ -126,7 +125,7 @@ class MediaRepository internal constructor(
      * drive) or when the row simply has no episode metadata yet —
      * callers handle both cases by falling back to a filesystem walk.
      */
-    fun listEpisodes(mediaId: Long): List<EpisodeRow> {
+    override fun listEpisodes(mediaId: Long): List<EpisodeRow> {
         val sql = """
             SELECT id, media_id, season_number, episode_number,
                    title, overview, air_date, runtime_minutes,
@@ -153,7 +152,7 @@ class MediaRepository internal constructor(
      * doesn't drag it back into the recently-added bucket. Returns an
      * empty list on v3 drives that don't have the columns.
      */
-    fun listRecentlyAddedMovies(sinceIsoTimestamp: String): List<MediaRow> {
+    override fun listRecentlyAddedMovies(sinceIsoTimestamp: String): List<MediaRow> {
         val sql = """
             SELECT id, tmdb_id, media_type, title, original_title,
                    runtime_minutes, poster_path, poster_url, folder_path,
@@ -172,7 +171,7 @@ class MediaRepository internal constructor(
     }
 
     /** Read a single `settings` value, or null if the key is unknown. */
-    fun setting(key: String): String? {
+    override fun setting(key: String): String? {
         return db.rawQuery("SELECT value FROM settings WHERE key = ?", arrayOf(key)).use { c ->
             if (c.moveToNext()) c.getString(0) else null
         }
