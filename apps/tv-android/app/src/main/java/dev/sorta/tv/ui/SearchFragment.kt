@@ -17,6 +17,7 @@ import dev.sorta.tv.data.MediaType
 import dev.sorta.tv.data.WatchHistory
 import dev.sorta.tv.playback.PlaybackResolver
 import dev.sorta.tv.playback.PlayerLauncher
+import dev.sorta.tv.playback.ResumeGate
 import dev.sorta.tv.usb.UsbDriveLocator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -132,7 +133,13 @@ class SearchFragment :
             ).show()
             return
         }
-        playerLauncher.launch(file, WatchHistory.keyFor(drive, file))
+        ResumeGate.launch(
+            context = requireContext(),
+            history = WatchHistory.get(requireContext()),
+            launcher = playerLauncher,
+            file = file,
+            mediaKey = WatchHistory.keyFor(drive, file),
+        )
     }
 
     private companion object {

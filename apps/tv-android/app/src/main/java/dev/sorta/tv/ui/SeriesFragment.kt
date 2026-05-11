@@ -15,6 +15,7 @@ import dev.sorta.tv.data.Season
 import dev.sorta.tv.data.SeriesScanner
 import dev.sorta.tv.data.WatchHistory
 import dev.sorta.tv.playback.PlayerLauncher
+import dev.sorta.tv.playback.ResumeGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -109,9 +110,12 @@ class SeriesFragment : BrowseSupportFragment() {
     }
 
     private fun launchEpisode(episode: Episode) {
-        playerLauncher.launch(
-            episode.file,
-            WatchHistory.keyFor(driveRoot, episode.file),
+        ResumeGate.launch(
+            context = requireContext(),
+            history = WatchHistory.get(requireContext()),
+            launcher = playerLauncher,
+            file = episode.file,
+            mediaKey = WatchHistory.keyFor(driveRoot, episode.file),
         )
     }
 }

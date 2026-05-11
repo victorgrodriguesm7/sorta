@@ -18,6 +18,7 @@ import dev.sorta.tv.data.MediaType
 import dev.sorta.tv.data.WatchHistory
 import dev.sorta.tv.playback.PlaybackResolver
 import dev.sorta.tv.playback.PlayerLauncher
+import dev.sorta.tv.playback.ResumeGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -75,7 +76,13 @@ class BrowseFragment : BrowseSupportFragment() {
             ).show()
             return
         }
-        playerLauncher.launch(file, WatchHistory.keyFor(root, file))
+        ResumeGate.launch(
+            context = requireContext(),
+            history = WatchHistory.get(requireContext()),
+            launcher = playerLauncher,
+            file = file,
+            mediaKey = WatchHistory.keyFor(root, file),
+        )
     }
 
     private fun loadCatalog() {

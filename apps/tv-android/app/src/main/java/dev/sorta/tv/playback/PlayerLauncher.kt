@@ -45,24 +45,22 @@ class PlayerLauncher(
         )
 
     /**
-     * Launch [file] in the user's chosen external player. If watch
-     * history already has a known position for [mediaKey], we ask
-     * the player to resume from that point.
+     * Launch [file] in the user's chosen external player, resuming
+     * from [startPositionMs] (or 0 for a fresh start). The caller is
+     * responsible for deciding the start position — typically by
+     * routing through [ResumeGate], which handles the "watched →
+     * restart from 0" and "in-progress → confirm" rules.
      */
-    fun launch(file: File, mediaKey: String) {
+    fun launch(file: File, mediaKey: String, startPositionMs: Long = 0L) {
         pendingKey = mediaKey
         val request = PlaybackIntent.build(file)
         val data = Uri.fromFile(File(request.filePath))
-        val resumePos = historyProvider().progressFor(mediaKey)
-            ?.takeIf { !it.watched }
-            ?.positionMs
-            ?: 0L
         val intent = Intent(request.action)
             .setDataAndType(data, request.mimeType)
             .addFlags(request.flags)
             // VLC: read on input, written on output.
             // MX Player: same key, same semantics.
-            .putExtra("position", resumePos)
+            .putExtra("position", startPositionMs)
             // MX Player gate that opts the app into receiving a
             // setResult callback at all. VLC ignores it.
             .putExtra("return_result", true)

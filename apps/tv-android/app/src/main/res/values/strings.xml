@@ -12,4 +12,11 @@
     <string name="error_missing_db">A drive is plugged in but no sorta.db was found at its root. Catalog the drive on the desktop app first.</string>
     <string name="error_schema_too_new">This drive was written by a newer version of Sorta (schema %1$d) than this app understands (schema %2$d). Update Sorta TV to continue.</string>
     <string name="series_empty">No episodes found on disk for this series.</string>
+
+    <!-- Resume confirmation dialog: shown before launching the player
+         when the user already has partial progress on a video. -->
+    <string name="resume_dialog_title">Continue where you left off?</string>
+    <string name="resume_dialog_message">You stopped at %1$s.</string>
+    <string name="resume_dialog_continue">Resume from %1$s</string>
+    <string name="resume_dialog_start_over">Start over</string>
 </resources>
