@@ -25,6 +25,7 @@ export default function SearchDialog({
   const [picked, setPicked] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isNew, setIsNew] = useState(false);
 
   const runSearch = async (q: string) => {
     if (!q.trim()) return;
@@ -54,6 +55,7 @@ export default function SearchDialog({
         videoFilename,
         tmdbId: picked.id,
         mediaType: picked.media_type,
+        isNew,
       });
       onLinked();
     } catch (e) {
@@ -146,7 +148,23 @@ export default function SearchDialog({
           </ul>
         </div>
 
-        <footer className="flex items-center justify-end gap-2 border-t border-neutral-800 p-4">
+        <footer className="flex items-center justify-between gap-2 border-t border-neutral-800 p-4">
+          <label
+            className="flex cursor-pointer items-center gap-2 text-xs text-neutral-300"
+            title={t(
+              "media.mark_as_new_help",
+              "Flag this item as new so the TV reader highlights it.",
+            )}
+          >
+            <input
+              type="checkbox"
+              checked={isNew}
+              onChange={(e) => setIsNew(e.target.checked)}
+              className="h-4 w-4 cursor-pointer accent-accent"
+            />
+            {t("media.mark_as_new", "Mark as new")}
+          </label>
+          <div className="flex items-center gap-2">
           <button
             onClick={onClose}
             className="rounded px-3 py-2 text-sm text-neutral-400 hover:text-white"
@@ -160,6 +178,7 @@ export default function SearchDialog({
           >
             {t("actions.confirm")}
           </button>
+          </div>
         </footer>
       </div>
     </div>
