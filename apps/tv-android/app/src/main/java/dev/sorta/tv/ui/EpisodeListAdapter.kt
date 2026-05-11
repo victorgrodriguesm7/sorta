@@ -27,9 +27,20 @@ class EpisodeListAdapter(
     private val seriesPosterPath: String?,
     private val seriesPosterUrl: String?,
     /** Resolves a per-episode progress entry; null → no overlay. */
-    private val progressFor: (SeriesEpisodeItem) -> WatchHistory.Progress?,
+    private var progressFor: (SeriesEpisodeItem) -> WatchHistory.Progress?,
     private val onClick: (SeriesEpisodeItem) -> Unit,
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+
+    /**
+     * Swap in a new progress lookup and redraw the visible items.
+     * Used by the fragment in `onResume` to reflect the latest
+     * `WatchHistory` snapshot without rebuilding the adapter (which
+     * would reset scroll / focus state).
+     */
+    fun refreshProgress(progressFor: (SeriesEpisodeItem) -> WatchHistory.Progress?) {
+        this.progressFor = progressFor
+        notifyDataSetChanged()
+    }
 
     sealed interface Row {
         data class Header(val seasonNumber: Int) : Row

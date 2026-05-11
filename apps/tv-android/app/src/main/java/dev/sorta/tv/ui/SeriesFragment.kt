@@ -132,16 +132,14 @@ class SeriesFragment : Fragment() {
                 ).show()
             }
 
-            // Rebuild the adapter with a fresh progress closure so
-            // overlays reflect the latest WatchHistory snapshot.
-            adapter = EpisodeListAdapter(
-                driveRoot = driveRoot,
-                seriesPosterPath = seriesPosterPath,
-                seriesPosterUrl = seriesPosterUrl,
-                progressFor = { item -> item.file?.let { f -> progress[WatchHistory.keyFor(driveRoot, f)] } },
-                onClick = { launchEpisode(it) },
-            )
-            episodeList.adapter = adapter
+            // Update the progress closure first so the upcoming
+            // submit() bind pass already paints fresh overlays. We
+            // intentionally keep the same adapter instance so
+            // RecyclerView preserves scroll + focus across the
+            // player round-trip.
+            adapter.refreshProgress { item ->
+                item.file?.let { f -> progress[WatchHistory.keyFor(driveRoot, f)] }
+            }
             adapter.submit(sections)
         }
     }
