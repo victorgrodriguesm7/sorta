@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useLibrary } from "@/stores/library";
 import { api, type EpisodeRow, type GenreRow } from "@/lib/tauri";
 import SearchDialog from "./SearchDialog";
+import RecatalogDialog from "./RecatalogDialog";
 import GenreEditor from "./GenreEditor";
 import { formatBytes } from "@/lib/format";
 
@@ -32,11 +33,15 @@ export default function RightPanel() {
   // chip is instant.
   const [isNew, setIsNew] = useState(false);
   const [episodes, setEpisodes] = useState<EpisodeRow[]>([]);
+  const [recatalogOpen, setRecatalogOpen] = useState(false);
+  const [recatalogReport, setRecatalogReport] = useState<string | null>(null);
 
   useEffect(() => {
     setRenaming(false);
     setEditingGenres(false);
     setUnlinkConfirm(false);
+    setRecatalogOpen(false);
+    setRecatalogReport(null);
     setError(null);
     if (selection?.kind === "media") {
       setNewTitle(selection.row.title);
@@ -341,6 +346,18 @@ export default function RightPanel() {
           >
             {t("actions.search")}
           </button>
+          {row.media_type === "tv" && (
+            <button
+              className="rounded border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-800"
+              onClick={() => setRecatalogOpen(true)}
+              title={t(
+                "actions.recatalog_help",
+                "Re-fetch TMDB metadata for this series. Useful for older catalog rows that pre-date per-episode storage.",
+              )}
+            >
+              {t("actions.recatalog", "Re-Catalog")}
+            </button>
+          )}
           <button
             className="rounded border border-red-900/60 px-3 py-1.5 text-sm text-red-300 hover:bg-red-900/30"
             onClick={() => setUnlinkConfirm(true)}
@@ -377,6 +394,12 @@ export default function RightPanel() {
           )}
         </div>
 
+
+        {recatalogReport && (
+          <div className="rounded border border-emerald-900/60 bg-emerald-900/20 px-3 py-2 text-sm text-emerald-100">
+            {recatalogReport}
+          </div>
+        )}
 
         {unlinkConfirm && (
           <div className="rounded border border-red-900/60 bg-red-900/20 p-3 text-sm text-red-100">
@@ -426,6 +449,48 @@ export default function RightPanel() {
             onLinked={async () => {
               setSearchOpen(false);
               await refresh();
+            }}
+          />
+        )}
+
+        {recatalogOpen && (
+          <RecatalogDialog
+            media={row}
+            onClose={() => setRecatalogOpen(false)}
+            onDone={async (result) => {
+              setRecatalogOpen(false);
+              setRecatalogReport(
+                t(
+                  "series.recatalog_done",
+                  "Re-cataloged {{seasons}} season(s), {{episodes}} episode(s). Renamed {{renamed}}, stills downloaded {{stills}}.{{skippedHint}}",
+                  {
+                    seasons: result.seasons_processed,
+                    episodes: result.episodes_processed,
+                    renamed: result.episodes_renamed,
+                    stills: result.stills_downloaded,
+                    skippedHint:
+                      result.skipped.length > 0
+                        ? t(
+                            "series.recatalog_skipped",
+                            " Skipped {{count}} file(s): {{names}}",
+                            {
+                              count: result.skipped.length,
+                              names: result.skipped.slice(0, 3).join(", ")
+                                + (result.skipped.length > 3 ? "…" : ""),
+                            },
+                          )
+                        : "",
+                  },
+                ),
+              );
+              await refresh();
+              // Refresh the episodes section without changing selection.
+              try {
+                const eps = await api.listEpisodes(row.id);
+                setEpisodes(eps);
+              } catch {
+                /* non-fatal */
+              }
             }}
           />
         )}
