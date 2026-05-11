@@ -50,6 +50,9 @@ class EpisodePresenter(
                 ContextCompat.getColor(context, R.color.card_background),
             )
         }
+        // Shared progress-overlay primitive — same shape as
+        // CardPresenter. See ProgressOverlayDrawable kdoc.
+        card.mainImageView.foreground = ProgressOverlayDrawable(context)
         return ViewHolder(card)
     }
 
@@ -58,7 +61,8 @@ class EpisodePresenter(
         val card = holder.view as ImageCardView
         card.titleText = episode.label
         card.contentText = episode.file.nameWithoutExtension.takeIf { it != episode.label }
-        card.badgeImage = badgeFor(card.context, progressFor(episode))
+        (card.mainImageView.foreground as? ProgressOverlayDrawable)?.state =
+            ProgressOverlayState.from(progressFor(episode))
 
         val placeholder = ContextCompat.getDrawable(card.context, R.drawable.poster_placeholder)
         val localPoster = seriesPosterPath?.let { File(driveRoot, it) }
@@ -85,7 +89,8 @@ class EpisodePresenter(
         val card = holder.view as ImageCardView
         card.titleText = null
         card.contentText = null
-        card.badgeImage = null
         card.mainImage = null
+        (card.mainImageView.foreground as? ProgressOverlayDrawable)?.state =
+            ProgressOverlayState.None
     }
 }

@@ -48,6 +48,10 @@ class CardPresenter(
                 ContextCompat.getColor(context, R.color.card_background),
             )
         }
+        // Foreground drawable on the main image renders the progress
+        // ring + watched scrim/pill. Created here so it survives
+        // recycler rebinds; the binder just updates `.state`.
+        card.mainImageView.foreground = ProgressOverlayDrawable(context)
         return ViewHolder(card)
     }
 
@@ -57,9 +61,11 @@ class CardPresenter(
         card.titleText = media.title
         card.contentText = media.originalTitle?.takeIf { it != media.title }
 
-        // Watched takes priority over in-progress: a finished movie is
-        // "done" even if the player reported a position before exit.
-        card.badgeImage = badgeFor(card.context, progressFor(media))
+        // Progress / watched state is rendered as a foreground
+        // overlay on the poster (see onCreateViewHolder). The legacy
+        // corner badgeImage is left unset to avoid double-rendering.
+        (card.mainImageView.foreground as? ProgressOverlayDrawable)?.state =
+            ProgressOverlayState.from(progressFor(media))
 
         val placeholder: Drawable? = ContextCompat.getDrawable(
             card.context,
@@ -90,23 +96,8 @@ class CardPresenter(
         val card = holder.view as ImageCardView
         card.titleText = null
         card.contentText = null
-        card.badgeImage = null
         card.mainImage = null
+        (card.mainImageView.foreground as? ProgressOverlayDrawable)?.state =
+            ProgressOverlayState.None
     }
-}
-
-/**
- * Pick the right corner badge for [progress]:
- *   - watched   → ic_check
- *   - resumable → ic_resume (any non-zero position that isn't "watched")
- *   - otherwise → no badge
- */
-internal fun badgeFor(
-    context: android.content.Context,
-    progress: WatchHistory.Progress?,
-): Drawable? = when {
-    progress == null -> null
-    progress.watched -> ContextCompat.getDrawable(context, R.drawable.ic_check)
-    progress.positionMs > 0 -> ContextCompat.getDrawable(context, R.drawable.ic_resume)
-    else -> null
 }

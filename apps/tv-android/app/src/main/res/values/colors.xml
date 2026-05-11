@@ -8,4 +8,10 @@
     <!-- Background painted on a poster card while Glide is loading,
          and shown for media rows with no poster at all. -->
     <color name="card_background">#FF1A1A1A</color>
+    <!-- Progress overlay (ring fill on in-progress cards, pill chip
+         on watched cards). Same accent indigo as the rest of the
+         app, lifted into its own name so the overlay rendering can
+         re-theme without touching focus rings. -->
+    <color name="progress_overlay_accent">#FF6366F1</color>
+    <color name="progress_overlay_pill_bg">#CC000000</color>
 </resources>

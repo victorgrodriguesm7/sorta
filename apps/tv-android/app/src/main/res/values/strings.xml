@@ -19,4 +19,9 @@
     <string name="resume_dialog_message">You stopped at %1$s.</string>
     <string name="resume_dialog_continue">Resume from %1$s</string>
     <string name="resume_dialog_start_over">Start over</string>
+
+    <!-- Pill drawn over a poster card when the user has finished
+         the movie / episode. Short enough to fit a 160dp-wide
+         card without truncation. -->
+    <string name="card_watched_label">Watched</string>
 </resources>
