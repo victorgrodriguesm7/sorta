@@ -5,6 +5,10 @@
          use the per-genre translated label from the desktop, so they
          live in the database, not here. -->
     <string name="row_series">Series</string>
+    <!-- Header label for the top row of the browse screen, showing
+         movies catalogued within the last 14 days that the user
+         flagged as "new". Hidden when the row is empty. -->
+    <string name="row_recently_added">Recently added</string>
     <string name="playback_chooser_title">Open with</string>
     <string name="playback_no_file">No video file found for %1$s</string>
     <string name="search_results_header">Results for “%1$s”</string>

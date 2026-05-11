@@ -15,6 +15,7 @@ import dev.sorta.tv.data.GenreRow
 import dev.sorta.tv.data.MediaRepository
 import dev.sorta.tv.data.MediaRow
 import dev.sorta.tv.data.MediaType
+import dev.sorta.tv.data.RecentWindow
 import dev.sorta.tv.data.WatchHistory
 import dev.sorta.tv.playback.PlaybackResolver
 import dev.sorta.tv.playback.PlayerLauncher
@@ -112,7 +113,11 @@ class BrowseFragment : BrowseSupportFragment() {
             val moviesByGenre = movieGenres.associateWith { genre ->
                 repo.listMoviesByGenre(genre.id)
             }
-            return CatalogPayload(drive, series, movieGenres, moviesByGenre, progress)
+            // "Recently added" = movies catalogued in the last 14 days
+            // with the is_new flag set. Empty list on v3 drives that
+            // predate the columns; the row is hidden in that case.
+            val recent = repo.listRecentlyAddedMovies(RecentWindow.cutoff())
+            return CatalogPayload(drive, recent, series, movieGenres, moviesByGenre, progress)
         }
     }
 
@@ -128,6 +133,17 @@ class BrowseFragment : BrowseSupportFragment() {
             aggregateProgress(media.folderPath, payload.progress)
         }
         var headerId = 0L
+
+        // "Recently added" sits above everything else — the whole
+        // point of the row is to surface freshly catalogued items
+        // ahead of the alphabetised genre rows below.
+        if (payload.recentlyAdded.isNotEmpty()) {
+            val header = HeaderItem(headerId++, getString(R.string.row_recently_added))
+            val rowAdapter = ArrayObjectAdapter(cardPresenter).apply {
+                addAll(0, payload.recentlyAdded)
+            }
+            rowsAdapter.add(ListRow(header, rowAdapter))
+        }
 
         if (payload.series.isNotEmpty()) {
             val header = HeaderItem(headerId++, getString(R.string.row_series))
@@ -176,6 +192,8 @@ class BrowseFragment : BrowseSupportFragment() {
 
     private data class CatalogPayload(
         val driveRoot: File,
+        /** Top-of-screen row: movies the user flagged + catalogued recently. */
+        val recentlyAdded: List<MediaRow>,
         val series: List<MediaRow>,
         val genres: List<GenreRow>,
         val moviesByGenre: Map<GenreRow, List<MediaRow>>,
