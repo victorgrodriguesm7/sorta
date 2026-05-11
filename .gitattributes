@@ -1,0 +1,9 @@
+# Sqlx embeds migration content at compile time and hashes the raw
+# bytes. If Windows checkouts rewrite the files to CRLF while a
+# Linux/macOS build leaves them LF (or vice-versa), the binary's
+# embedded checksum diverges from whatever was stored in the user's
+# `_sqlx_migrations` table on first apply, and every subsequent boot
+# fails with "migration N was previously applied but has been
+# modified". Forcing LF here makes the bytes deterministic across
+# platforms.
+apps/desktop/src-tauri/migrations/*.sql text eol=lf
