@@ -19,6 +19,15 @@ import java.io.File
  */
 class MediaRepository internal constructor(
     private val db: SQLiteDatabase,
+    /**
+     * Drive this DB lives on. Stamped onto every [MediaRow] the repo
+     * returns so multi-drive merges can keep resolving `posterPath` /
+     * `folderPath` against the right HD. Null when the repo was
+     * constructed from a bare `SQLiteDatabase` handle without a path
+     * (only happens in old tests; production opens always go through
+     * [open] and supply the drive root).
+     */
+    private val driveRoot: File? = null,
 ) : Closeable {
 
     /**
@@ -75,7 +84,7 @@ class MediaRepository internal constructor(
               AND mg.media_type = 'movie' $primaryClause
             ORDER BY m.title COLLATE NOCASE
         """.trimIndent()
-        return db.rawQuery(sql, arrayOf(genreId.toString())).use { it.toMediaRows() }
+        return db.rawQuery(sql, arrayOf(genreId.toString())).use { it.toMediaRows(driveRoot) }
     }
 
     /** Every linked series, sorted by display title. */
@@ -88,7 +97,7 @@ class MediaRepository internal constructor(
             WHERE media_type = 'tv'
             ORDER BY title COLLATE NOCASE
         """.trimIndent()
-        return db.rawQuery(sql, emptyArray()).use { it.toMediaRows() }
+        return db.rawQuery(sql, emptyArray()).use { it.toMediaRows(driveRoot) }
     }
 
     /**
@@ -108,7 +117,7 @@ class MediaRepository internal constructor(
                OR original_title LIKE ? ESCAPE '\'
             ORDER BY title COLLATE NOCASE
         """.trimIndent()
-        return db.rawQuery(sql, arrayOf(pattern, pattern)).use { it.toMediaRows() }
+        return db.rawQuery(sql, arrayOf(pattern, pattern)).use { it.toMediaRows(driveRoot) }
     }
 
     /**
@@ -156,7 +165,7 @@ class MediaRepository internal constructor(
             ORDER BY catalogued_at DESC
         """.trimIndent()
         return try {
-            db.rawQuery(sql, arrayOf(sinceIsoTimestamp)).use { it.toMediaRows() }
+            db.rawQuery(sql, arrayOf(sinceIsoTimestamp)).use { it.toMediaRows(driveRoot) }
         } catch (e: android.database.sqlite.SQLiteException) {
             emptyList()
         }
@@ -176,7 +185,9 @@ class MediaRepository internal constructor(
     companion object {
         /**
          * Open a `sorta.db` file read-only. Caller owns the returned
-         * repository and must `close()` it.
+         * repository and must `close()` it. The DB's parent directory
+         * is captured as the drive root so emitted [MediaRow]s carry a
+         * back-pointer to their HD.
          */
         fun open(dbFile: File): MediaRepository {
             val db = SQLiteDatabase.openDatabase(
@@ -184,7 +195,7 @@ class MediaRepository internal constructor(
                 /* factory = */ null,
                 SQLiteDatabase.OPEN_READONLY,
             )
-            return MediaRepository(db)
+            return MediaRepository(db, driveRoot = dbFile.parentFile)
         }
     }
 }
@@ -205,7 +216,7 @@ private fun android.database.Cursor.getStringOrNull(index: Int): String? =
  */
 private fun String?.posixPath(): String? = this?.replace('\\', '/')
 
-private fun android.database.Cursor.toMediaRows(): List<MediaRow> = use { c ->
+private fun android.database.Cursor.toMediaRows(driveRoot: File?): List<MediaRow> = use { c ->
     // catalogued_at + is_new were added in v4. v3 drives don't select
     // them (the queries here all reference them, but if a caller
     // hand-rolls a SELECT without those columns the indices will be
@@ -232,6 +243,7 @@ private fun android.database.Cursor.toMediaRows(): List<MediaRow> = use { c ->
                     isNew = if (isNewIdx >= 0 && !c.isNull(isNewIdx)) {
                         c.getInt(isNewIdx) != 0
                     } else false,
+                    driveRoot = driveRoot,
                 )
             )
         }

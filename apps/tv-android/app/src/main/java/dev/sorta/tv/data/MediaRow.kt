@@ -1,5 +1,7 @@
 package dev.sorta.tv.data
 
+import java.io.File
+
 /**
  * One row from the `media` table. Mirrors the columns documented in
  * `docs/disk-format.md#media`.
@@ -29,6 +31,15 @@ data class MediaRow(
      * the Recently Added row on the browse screen.
      */
     val isNew: Boolean = false,
+    /**
+     * Drive this row was read from. Transient — not persisted in
+     * `media`, populated by [MediaRepository.open] from the file's
+     * parent directory. Lets callers resolve [posterPath] /
+     * [folderPath] correctly when the browse UI is merging rows
+     * from several HDs in one list. Null on rows constructed in
+     * tests / fixtures where the drive doesn't matter.
+     */
+    val driveRoot: File? = null,
 )
 
 enum class MediaType(val sqlValue: String) {
