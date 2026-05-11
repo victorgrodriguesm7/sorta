@@ -1,6 +1,8 @@
 package dev.sorta.tv.ui
 
+import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
 import dev.sorta.tv.R
@@ -25,6 +27,20 @@ class BrowseActivity : FragmentActivity() {
                 showFor(result)
             }
         }
+    }
+
+    /**
+     * Activity-level fallback for the MENU key — when a focused child
+     * inside BrowseFragment has consumed the key event, the fragment's
+     * own listener never fires; intercepting here guarantees the
+     * Settings shortcut works regardless of which row is focused.
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_MENU) {
+            startActivity(Intent(this, SettingsActivity::class.java))
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     private fun showFor(result: CatalogCheck.Result) {

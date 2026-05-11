@@ -59,6 +59,28 @@ class BrowseFragment : BrowseSupportFragment() {
         loadCatalog()
     }
 
+    override fun onStart() {
+        super.onStart()
+        // TV remotes expose a dedicated MENU button; route it to
+        // Settings so the language picker is reachable without
+        // adding a custom title-view affordance. BrowseActivity also
+        // routes the same keycode (see its onKeyDown) for cases
+        // where the focused child swallowed the event first.
+        view?.let { v ->
+            v.isFocusableInTouchMode = true
+            v.setOnKeyListener { _, keyCode, event ->
+                if (event.action == android.view.KeyEvent.ACTION_DOWN &&
+                    keyCode == android.view.KeyEvent.KEYCODE_MENU
+                ) {
+                    startActivity(Intent(requireContext(), SettingsActivity::class.java))
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
     private fun onMediaClicked(media: MediaRow) {
         val root = driveRoot ?: return
         when (media.mediaType) {

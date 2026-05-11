@@ -28,4 +28,13 @@
          the movie / episode. Short enough to fit a 160dp-wide
          card without truncation. -->
     <string name="card_watched_label">Watched</string>
+
+    <!-- Settings UI. The activity is reached via the MENU key on the
+         TV remote from the browse screen. -->
+    <string name="settings_section_app">Sorta TV</string>
+    <string name="settings_language_title">Language</string>
+    <string name="settings_language_subtitle">Pick the language used across the app.</string>
+    <string name="settings_language_system">Follow system</string>
+    <string name="settings_language_en">English</string>
+    <string name="settings_language_pt_br">Português (Brasil)</string>
 </resources>
