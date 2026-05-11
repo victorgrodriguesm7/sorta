@@ -4,7 +4,3 @@
 -- code on every successful migration run; this insert just makes
 -- sure the row exists for the very first boot.
 INSERT OR IGNORE INTO settings(key, value) VALUES ('schema_version', '3');
--- The row is overwritten by `db::open` to match CURRENT_SCHEMA_VERSION
--- on every boot, so the literal `3` here is only relevant on a *very*
--- first migration run before that overwrite happens. Subsequent
--- migrations bump CURRENT_SCHEMA_VERSION in Rust, not in this file.
