@@ -152,7 +152,7 @@ class BrowseFragment : BrowseSupportFragment() {
         driveRoot = payload.driveRoot
 
         val cardPresenter = CardPresenter(payload.driveRoot) { media ->
-            aggregateProgress(media.folderPath, payload.progress)
+            aggregateProgress(media.mediaType, media.folderPath, payload.progress)
         }
         var headerId = 0L
 
@@ -188,15 +188,19 @@ class BrowseFragment : BrowseSupportFragment() {
 
     /**
      * Synthesise a [WatchHistory.Progress] for a [MediaRow] from every
-     * watch-history entry under its folder. The returned value drives
-     * the corner badge:
-     *   - any episode watched → `watched = true`  (✓ check icon)
-     *   - any episode partial → `positionMs > 0`  (▶ resume icon)
-     * Position/duration values themselves are placeholders here —
-     * the badge presenter only inspects which case fires, not the
-     * exact ms.
+     * watch-history entry under its folder. Drives the corner overlay:
+     *   - movies: any partial position → in-progress ring; watched
+     *     flag passes through verbatim.
+     *   - series: only the in-progress ring may fire. "Watched" is
+     *     intentionally suppressed at the series-card level because a
+     *     show with one finished episode out of fifty is not really
+     *     watched — the Watched pill should only appear on a specific
+     *     episode inside [SeriesFragment].
+     * Position/duration values themselves are placeholders — the
+     * overlay only inspects which case fires, not the exact ms.
      */
     private fun aggregateProgress(
+        mediaType: MediaType,
         folderPath: String,
         all: Map<String, WatchHistory.Progress>,
     ): WatchHistory.Progress? {
@@ -205,10 +209,14 @@ class BrowseFragment : BrowseSupportFragment() {
         if (entries.isEmpty()) return null
         val anyWatched = entries.any { it.value.watched }
         val anyInProgress = entries.any { it.value.positionMs > 0 && !it.value.watched }
+        val watchedFlag = when (mediaType) {
+            MediaType.MOVIE -> anyWatched
+            MediaType.TV -> false
+        }
         return WatchHistory.Progress(
-            positionMs = if (!anyWatched && anyInProgress) 1L else 0L,
+            positionMs = if (!watchedFlag && anyInProgress) 1L else 0L,
             durationMs = 0L,
-            watched = anyWatched,
+            watched = watchedFlag,
         )
     }
 
