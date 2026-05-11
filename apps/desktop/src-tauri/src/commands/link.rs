@@ -196,6 +196,7 @@ pub async fn link_media(state: State<'_, AppState>, args: LinkArgs) -> AppResult
             poster_path: poster_local.as_deref(),
             poster_url: poster_remote.as_deref(),
             folder_path: &folder_path_rel,
+            is_new: false,
         },
     )
     .await?;
@@ -602,6 +603,7 @@ pub async fn link_as_series(
                 poster_path: poster_local.as_deref(),
                 poster_url: poster_remote.as_deref(),
                 folder_path: &folder_rel,
+                is_new: false,
             },
         )
         .await?;

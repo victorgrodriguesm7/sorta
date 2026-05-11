@@ -40,6 +40,15 @@ pub struct MediaRow {
     pub poster_path: Option<String>,
     pub poster_url: Option<String>,
     pub folder_path: String,
+    /// ISO 8601 UTC timestamp (e.g. `2026-05-11T12:34:56Z`). The DB
+    /// default is `strftime('now')`, so older rows backfilled by the
+    /// migration share the upgrade-time timestamp.
+    #[serde(default)]
+    pub catalogued_at: String,
+    /// User-controlled "Mark as new" flag set at cataloging time.
+    /// Stored as 0/1 in SQLite.
+    #[serde(default)]
+    pub is_new: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -52,14 +61,20 @@ pub struct NewMedia<'a> {
     pub poster_path: Option<&'a str>,
     pub poster_url: Option<&'a str>,
     pub folder_path: &'a str,
+    /// Defaults to false. Caller passes the value of the UI checkbox.
+    pub is_new: bool,
 }
 
-/// Insert a new media row, returning the row id.
+/// Insert a new media row, returning the row id. `catalogued_at` is
+/// filled by the SQL default (`strftime('now')`); callers should not
+/// pass an explicit value — keeping it server-side guarantees a
+/// monotonically meaningful timestamp regardless of the host clock
+/// drift on the JS side.
 pub async fn insert_media(pool: &SqlitePool, m: &NewMedia<'_>) -> AppResult<i64> {
     let res = sqlx::query(
         "INSERT INTO media \
-         (tmdb_id, media_type, title, original_title, runtime_minutes, poster_path, poster_url, folder_path) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+         (tmdb_id, media_type, title, original_title, runtime_minutes, poster_path, poster_url, folder_path, is_new) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(m.tmdb_id)
     .bind(m.media_type.as_db_str())
@@ -69,10 +84,23 @@ pub async fn insert_media(pool: &SqlitePool, m: &NewMedia<'_>) -> AppResult<i64>
     .bind(m.poster_path)
     .bind(m.poster_url)
     .bind(m.folder_path)
+    .bind(if m.is_new { 1_i64 } else { 0 })
     .execute(pool)
     .await
     .map_err(|e| AppError::Other(format!("insert_media: {e}")))?;
     Ok(res.last_insert_rowid())
+}
+
+/// Toggle the `is_new` flag on an existing row. Used by the UI's
+/// "Mark as new" / "Clear new" affordance on the right panel.
+pub async fn set_is_new(pool: &SqlitePool, id: i64, is_new: bool) -> AppResult<()> {
+    sqlx::query("UPDATE media SET is_new = ? WHERE id = ?")
+        .bind(if is_new { 1_i64 } else { 0 })
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::Other(format!("set_is_new: {e}")))?;
+    Ok(())
 }
 
 /// Fetch by `(tmdb_id, media_type)`.
@@ -165,6 +193,7 @@ mod tests {
                 poster_path: Some("poster/27205.jpg"),
                 poster_url: Some("https://img.tmdb.org/x.jpg"),
                 folder_path: "Movies/Action/Inception [tmdb-27205]",
+                is_new: false,
             },
         )
         .await
@@ -191,6 +220,7 @@ mod tests {
             poster_path: None,
             poster_url: None,
             folder_path: "Movies/A [tmdb-1]",
+            is_new: false,
         };
         insert_media(&pool, &m).await.unwrap();
         let dup = insert_media(&pool, &m).await;
@@ -211,6 +241,7 @@ mod tests {
                 poster_path: None,
                 poster_url: None,
                 folder_path: "old/path",
+                is_new: false,
             },
         )
         .await

@@ -4,6 +4,7 @@
 //! (NOT compile-time `query!` macros) so the DB doesn't need to exist at
 //! build time — building the app shouldn't require an HD to be plugged in.
 
+pub mod episodes;
 pub mod genres;
 pub mod media;
 pub mod settings;
@@ -15,6 +16,7 @@ use std::str::FromStr;
 
 use crate::error::{AppError, AppResult};
 
+pub use episodes::*;
 pub use genres::*;
 pub use media::*;
 pub use settings::*;
@@ -24,7 +26,7 @@ pub use settings::*;
 /// against the value stored in the `settings.schema_version` row and
 /// refuses to open the DB if the on-disk number is newer than what
 /// it knows.
-pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 
 /// Open (or create) the SQLite DB at the given path and run migrations.
 pub async fn open(db_path: &Path) -> AppResult<SqlitePool> {
