@@ -66,6 +66,15 @@ impl UserConfig {
         let bytes = std::fs::read(&path).map_err(AppError::from)?;
         let mut cfg: UserConfig = serde_json::from_slice(&bytes)
             .map_err(|e| AppError::Other(format!("config decode: {e}")))?;
+        // One-shot promotion of a legacy single-drive config. Done
+        // here (not in normalize) so subsequent normalize calls don't
+        // resurrect the field after a remove_hd_root that empties the
+        // list.
+        if cfg.hd_roots.is_empty() {
+            if let Some(legacy) = cfg.hd_root.take() {
+                cfg.hd_roots.push(legacy);
+            }
+        }
         cfg.normalize();
         Ok(cfg)
     }
@@ -107,19 +116,11 @@ impl UserConfig {
         changed
     }
 
-    /// Reconcile `hd_root` (primary) with `hd_roots` (full list).
-    ///   - empty `hd_roots` + Some `hd_root` → promote legacy.
-    ///   - non-empty `hd_roots` → primary is always the first entry.
-    ///   - empty list and empty primary → both stay None / [].
+    /// Keep `hd_root` (primary) in sync with `hd_roots.first()`.
+    /// Legacy promotion happens once in [load]; this method never
+    /// resurrects an entry that's been removed from `hd_roots`.
     fn normalize(&mut self) {
-        if self.hd_roots.is_empty() {
-            if let Some(legacy) = self.hd_root.take() {
-                self.hd_roots.push(legacy.clone());
-                self.hd_root = Some(legacy);
-            }
-        } else {
-            self.hd_root = Some(self.hd_roots[0].clone());
-        }
+        self.hd_root = self.hd_roots.first().cloned();
     }
 }
 

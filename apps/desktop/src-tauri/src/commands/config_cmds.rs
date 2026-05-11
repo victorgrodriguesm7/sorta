@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::mpsc;
 
@@ -100,20 +101,21 @@ pub async fn remove_hd_root(
     cfg.remove_hd_root(&path);
     cfg.save(&dir)?;
 
-    if was_primary {
-        // The active pool now points at a drive we just unregistered;
-        // tear it down and re-initialise against the new primary (if
-        // any). Doing this synchronously means the next command sees
-        // a consistent state.
-        {
-            let mut s = state.write().await;
+    // Drop the unregistered drive's pool + watcher from the runtime
+    // map. If it was the active primary, also clear the legacy
+    // single-drive fields and reinitialise against the new primary
+    // (if any) so subsequent commands see a consistent state.
+    {
+        let mut s = state.write().await;
+        s.drives.remove(&path);
+        if was_primary {
             s.hd_root = None;
             s.db = None;
             s.watcher = None;
         }
-        if cfg.hd_root.is_some() {
-            initialize_with(app.clone(), state.clone(), cfg.clone()).await?;
-        }
+    }
+    if was_primary && cfg.hd_root.is_some() {
+        initialize_with(app.clone(), state.clone(), cfg.clone()).await?;
     }
     Ok(to_dto(&cfg, state.read().await.db.is_some()))
 }
@@ -213,49 +215,75 @@ pub async fn set_ui_language(
     Ok(())
 }
 
-/// Try to initialize app state (db + watcher + tmdb client) from a config.
-/// Called on startup and whenever HD root changes. Returns `Ok(())` even
-/// if nothing could be initialized (e.g. no HD root set yet).
+/// Try to initialize app state (db + watcher + tmdb client) for every
+/// drive in [cfg.hd_roots]. Called on startup and whenever the drive
+/// list changes. Returns `Ok(())` even if no drives are configured
+/// yet — the frontend's initial-setup flow handles that case.
+///
+/// Each drive that opens successfully gets a pool + filesystem
+/// watcher in `state.drives`. The first registered drive also lights
+/// up the legacy `state.hd_root` / `state.db` / `state.watcher`
+/// fields so single-drive command paths keep working.
 pub async fn initialize_with(
     app: AppHandle,
     state: State<'_, AppState>,
     cfg: UserConfig,
 ) -> AppResult<()> {
-    let Some(hd_root) = cfg.hd_root.clone() else {
+    if cfg.hd_roots.is_empty() {
         return Ok(());
-    };
-    if !hd_root.exists() {
-        return Err(AppError::InvalidPath(format!(
-            "configured HD root {} no longer exists",
-            hd_root.display()
-        )));
     }
 
-    let db = db::open(&hd_root.join("sorta.db")).await?;
-
-    // Wire the filesystem watcher → emit "library-changed" Tauri event.
-    let (tx, mut rx) = mpsc::unbounded_channel::<ChangeEvent>();
-    let handle = watch(&hd_root, tx)?;
-    let app_for_events = app.clone();
-    tokio::spawn(async move {
-        while let Some(_ev) = rx.recv().await {
-            let _ = app_for_events.emit("library-changed", ());
+    // Open every drive. A failing drive surfaces immediately so the
+    // user sees the error (rather than us silently dropping it and
+    // showing a partial library).
+    let mut handles: Vec<(PathBuf, crate::state::DriveHandles, SqlitePool)> = Vec::new();
+    for root in &cfg.hd_roots {
+        if !root.exists() {
+            return Err(AppError::InvalidPath(format!(
+                "configured HD root {} no longer exists",
+                root.display()
+            )));
         }
-    });
+        let db = db::open(&root.join("sorta.db")).await?;
+        let (tx, mut rx) = mpsc::unbounded_channel::<ChangeEvent>();
+        let watcher = watch(root, tx)?;
+        // One emitter task per drive. The "library-changed" event is
+        // un-tagged today — phase C.4 may add the drive root once the
+        // frontend wants per-drive refresh.
+        let app_for_events = app.clone();
+        tokio::spawn(async move {
+            while let Some(_ev) = rx.recv().await {
+                let _ = app_for_events.emit("library-changed", ());
+            }
+        });
+        handles.push((root.clone(), crate::state::DriveHandles { db: db.clone(), watcher }, db));
+    }
 
     let tmdb = cfg.tmdb_api_key.as_ref().map(|k| TmdbClient::new(k.clone()));
+    let primary_root = cfg.hd_roots[0].clone();
+    let primary_db = handles[0].2.clone();
 
     {
         let mut s = state.write().await;
-        s.hd_root = Some(hd_root.clone());
-        s.db = Some(db.clone());
+        s.drives.clear();
+        for (root, drive_handles, _db) in handles {
+            s.drives.insert(root, drive_handles);
+        }
+        // Legacy single-drive mirror: pick the primary from the new map.
+        s.hd_root = Some(primary_root.clone());
+        s.db = Some(primary_db.clone());
+        s.watcher = None; // Lives inside `drives[primary]` now.
         s.tmdb = tmdb;
-        s.watcher = Some(handle);
     }
 
-    // Refresh the manifest companion file alongside sorta.db so any
-    // external reader (TV-side client) sees a current snapshot.
-    crate::manifest::write_best_effort(&hd_root, &db).await;
+    // Refresh the manifest companion file alongside sorta.db on every
+    // drive so external readers see a current snapshot per HD.
+    for root in &cfg.hd_roots {
+        if let Ok(pool) = state.read().await.pool_for(root) {
+            crate::manifest::write_best_effort(root, &pool).await;
+        }
+    }
 
+    let _ = primary_db; // keep the borrow alive across the lock release
     Ok(())
 }
