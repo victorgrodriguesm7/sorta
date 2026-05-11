@@ -45,6 +45,14 @@ class SeriesFragment : Fragment() {
     private lateinit var titleView: TextView
     private lateinit var adapter: EpisodeListAdapter
 
+    /**
+     * Latest watch-history snapshot for everything under [seriesRoot].
+     * Mutated on each [loadEpisodes] pass; the adapter's `progressFor`
+     * closure reads from this field so overlays redraw without us
+     * having to swap the closure or rebuild the adapter.
+     */
+    private var progress: Map<String, WatchHistory.Progress> = emptyMap()
+
     private val playerLauncher = PlayerLauncher(this) {
         WatchHistory.get(requireContext())
     }
@@ -80,7 +88,12 @@ class SeriesFragment : Fragment() {
             driveRoot = driveRoot,
             seriesPosterPath = seriesPosterPath,
             seriesPosterUrl = seriesPosterUrl,
-            progressFor = { /* re-bound in loadEpisodes */ null },
+            // Closure reads the live `progress` field so each bind
+            // reflects the latest WatchHistory snapshot — no need to
+            // rebuild the adapter or swap the lookup on resume.
+            progressFor = { item ->
+                item.file?.let { f -> progress[WatchHistory.keyFor(driveRoot, f)] }
+            },
             onClick = { launchEpisode(it) },
         )
         episodeList.layoutManager = LinearLayoutManager(requireContext())
@@ -111,7 +124,7 @@ class SeriesFragment : Fragment() {
 
     private fun loadEpisodes() {
         lifecycleScope.launch {
-            val (sections, progress) = withContext(Dispatchers.IO) {
+            val (sections, prog) = withContext(Dispatchers.IO) {
                 val tableRows = if (mediaId > 0) {
                     runCatching {
                         MediaRepository.open(File(driveRoot, "sorta.db")).use { it.listEpisodes(mediaId) }
@@ -120,8 +133,8 @@ class SeriesFragment : Fragment() {
                 val diskSeasons = SeriesScanner.scan(seriesRoot)
                 val merged = SeriesEpisodeMerger.merge(tableRows, diskSeasons, driveRoot)
                 val folderKey = WatchHistory.keyFor(driveRoot, seriesRoot)
-                val prog = WatchHistory.get(requireContext()).progressUnder(folderKey)
-                merged to prog
+                val p = WatchHistory.get(requireContext()).progressUnder(folderKey)
+                merged to p
             }
 
             if (sections.isEmpty() || sections.all { it.items.isEmpty() }) {
@@ -132,14 +145,12 @@ class SeriesFragment : Fragment() {
                 ).show()
             }
 
-            // Update the progress closure first so the upcoming
-            // submit() bind pass already paints fresh overlays. We
-            // intentionally keep the same adapter instance so
-            // RecyclerView preserves scroll + focus across the
-            // player round-trip.
-            adapter.refreshProgress { item ->
-                item.file?.let { f -> progress[WatchHistory.keyFor(driveRoot, f)] }
-            }
+            // Update the progress snapshot then submit. The adapter's
+            // bind pass reads the live `progress` field, so overlays
+            // paint with the latest values without a closure swap and
+            // RecyclerView keeps its scroll/focus across the player
+            // round-trip.
+            progress = prog
             adapter.submit(sections)
         }
     }

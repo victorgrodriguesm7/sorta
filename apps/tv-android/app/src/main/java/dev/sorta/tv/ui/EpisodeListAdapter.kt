@@ -26,21 +26,15 @@ class EpisodeListAdapter(
     /** Series poster, used as a fallback when a row has no still. */
     private val seriesPosterPath: String?,
     private val seriesPosterUrl: String?,
-    /** Resolves a per-episode progress entry; null → no overlay. */
-    private var progressFor: (SeriesEpisodeItem) -> WatchHistory.Progress?,
+    /**
+     * Resolves a per-episode progress entry; null → no overlay. The
+     * fragment owns the underlying map and mutates it before calling
+     * [submit], so the closure stays valid for the adapter's
+     * lifetime.
+     */
+    private val progressFor: (SeriesEpisodeItem) -> WatchHistory.Progress?,
     private val onClick: (SeriesEpisodeItem) -> Unit,
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-
-    /**
-     * Swap in a new progress lookup and redraw the visible items.
-     * Used by the fragment in `onResume` to reflect the latest
-     * `WatchHistory` snapshot without rebuilding the adapter (which
-     * would reset scroll / focus state).
-     */
-    fun refreshProgress(progressFor: (SeriesEpisodeItem) -> WatchHistory.Progress?) {
-        this.progressFor = progressFor
-        notifyDataSetChanged()
-    }
 
     sealed interface Row {
         data class Header(val seasonNumber: Int) : Row

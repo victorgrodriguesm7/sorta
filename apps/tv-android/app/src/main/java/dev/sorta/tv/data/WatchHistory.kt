@@ -96,15 +96,26 @@ class WatchHistory internal constructor(
     /**
      * Bulk lookup: every row whose `media_key` starts with [prefix]
      * (a relative folder path, e.g. `Series/Show [tmdb-9]`). Returns
-     * a map keyed by the **full** media_key.
+     * a map keyed by the **full** media_key. An empty [prefix] means
+     * "every row" — used by the browse screen to gather progress for
+     * the whole catalog in one shot.
      */
     fun progressUnder(prefix: String): Map<String, Progress> {
-        val pattern = prefix.trimEnd('/') + "/%"
         val out = HashMap<String, Progress>()
-        helper.readableDatabase.rawQuery(
-            "SELECT media_key, position_ms, duration_ms, watched FROM $TABLE WHERE media_key LIKE ? ESCAPE '\\'",
-            arrayOf(pattern.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"),
-        ).use { c ->
+        val (sql, args) = if (prefix.isEmpty()) {
+            // Empty-prefix path: skip the LIKE entirely. Wrapping `""`
+            // into a pattern produced `/\%%`, which matched no real
+            // keys and quietly emptied the browse-screen overlay map.
+            "SELECT media_key, position_ms, duration_ms, watched FROM $TABLE" to emptyArray<String>()
+        } else {
+            val escaped = prefix.trimEnd('/')
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+            val pattern = "$escaped/%"
+            "SELECT media_key, position_ms, duration_ms, watched FROM $TABLE WHERE media_key LIKE ? ESCAPE '\\'" to arrayOf(pattern)
+        }
+        helper.readableDatabase.rawQuery(sql, args).use { c ->
             while (c.moveToNext()) {
                 out[c.getString(0)] = Progress(
                     positionMs = c.getLong(1),
