@@ -66,15 +66,17 @@ pub struct NewMedia<'a> {
 }
 
 /// Insert a new media row, returning the row id. `catalogued_at` is
-/// filled by the SQL default (`strftime('now')`); callers should not
-/// pass an explicit value — keeping it server-side guarantees a
-/// monotonically meaningful timestamp regardless of the host clock
-/// drift on the JS side.
+/// filled inline by SQLite's `strftime`, not as a column default —
+/// `ALTER TABLE ADD COLUMN` doesn't accept non-constant defaults, so
+/// the schema's literal `''` placeholder only applies to the moment
+/// the column is created during migration. Keeping the timestamp on
+/// the SQL side means clock drift on the JS layer (or a misbehaving
+/// caller) can't poison the column with bogus values.
 pub async fn insert_media(pool: &SqlitePool, m: &NewMedia<'_>) -> AppResult<i64> {
     let res = sqlx::query(
         "INSERT INTO media \
-         (tmdb_id, media_type, title, original_title, runtime_minutes, poster_path, poster_url, folder_path, is_new) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (tmdb_id, media_type, title, original_title, runtime_minutes, poster_path, poster_url, folder_path, is_new, catalogued_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
     )
     .bind(m.tmdb_id)
     .bind(m.media_type.as_db_str())
@@ -225,6 +227,47 @@ mod tests {
         insert_media(&pool, &m).await.unwrap();
         let dup = insert_media(&pool, &m).await;
         assert!(dup.is_err(), "duplicate (tmdb_id, media_type) should fail");
+    }
+
+    #[tokio::test]
+    async fn insert_stamps_catalogued_at_iso_8601() {
+        // Locks in two things at once:
+        //   1. `insert_media` doesn't rely on the column default
+        //      (which is "" because SQLite ALTER TABLE forbids
+        //      non-constant defaults — see migration 0004).
+        //   2. The format matches what the reader expects: ISO 8601
+        //      UTC with a trailing Z, 20 characters total.
+        let (_tmp, pool) = fresh().await;
+        let id = insert_media(
+            &pool,
+            &NewMedia {
+                tmdb_id: 9001,
+                media_type: MediaType::Movie,
+                title: "Stamp Test",
+                original_title: None,
+                runtime_minutes: None,
+                poster_path: None,
+                poster_url: None,
+                folder_path: "Movies/x [tmdb-9001]",
+                is_new: false,
+            },
+        )
+        .await
+        .unwrap();
+
+        let row = find_by_id(&pool, id).await.unwrap().unwrap();
+        assert!(!row.catalogued_at.is_empty(), "catalogued_at must be set");
+        assert!(
+            row.catalogued_at.ends_with('Z'),
+            "expected ISO 8601 UTC, got {:?}",
+            row.catalogued_at,
+        );
+        assert_eq!(
+            row.catalogued_at.len(),
+            20,
+            "expected 20-char ISO 8601, got {:?}",
+            row.catalogued_at,
+        );
     }
 
     #[tokio::test]
