@@ -54,16 +54,22 @@ pub fn run() {
             commands::config_cmds::set_ui_language,
             commands::config_cmds::set_compression_codec,
             commands::config_cmds::backup_database,
-            commands::library::scan_now,
-            commands::library::list_movies_by_genre,
-            commands::library::list_movies_by_genres,
-            commands::library::get_poster_url,
-            commands::library::list_series,
-            commands::library::list_movie_genres,
-            commands::library::list_movie_genres_in_use,
-            commands::library::update_genre_translation,
-            commands::library::update_root_label,
-            commands::library::open_in_explorer,
+            // The `library` module is split into submodules (listing,
+            // genres, poster, labels, explorer). `tauri::generate_handler!`
+            // needs the canonical module path of each command — the hidden
+            // `__cmd__<name>` items the macro generates live next to the
+            // function definition, so `pub use` re-exports at the
+            // `library::mod` level aren't enough.
+            commands::library::listing::scan_now,
+            commands::library::listing::list_movies_by_genre,
+            commands::library::listing::list_movies_by_genres,
+            commands::library::poster::get_poster_url,
+            commands::library::listing::list_series,
+            commands::library::genres::list_movie_genres,
+            commands::library::genres::list_movie_genres_in_use,
+            commands::library::genres::update_genre_translation,
+            commands::library::labels::update_root_label,
+            commands::library::explorer::open_in_explorer,
             commands::tmdb_cmds::tmdb_search,
             commands::tmdb_cmds::tmdb_get_movie,
             commands::tmdb_cmds::tmdb_get_tv,
