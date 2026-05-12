@@ -5,6 +5,9 @@ import { api, type GenreRow, type MediaType } from "@/lib/tauri";
 interface Props {
   mediaId: number;
   mediaType: MediaType;
+  /** Drive the row lives on. Passed through to `reorder_media_genres`
+   *  so the backend can dispatch the write to the correct pool. */
+  driveRoot: string | null;
   initialGenres: GenreRow[];
   onClose: () => void;
   onSaved: () => void;
@@ -18,6 +21,7 @@ function displayName(g: GenreRow) {
 export default function GenreEditor({
   mediaId,
   mediaType,
+  driveRoot,
   initialGenres,
   onClose,
   onSaved,
@@ -87,6 +91,7 @@ export default function GenreEditor({
       await api.reorderMediaGenres(
         mediaId,
         list.map((g) => g.id),
+        driveRoot,
       );
       onSaved();
     } catch (e) {

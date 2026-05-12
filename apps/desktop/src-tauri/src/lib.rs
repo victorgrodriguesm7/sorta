@@ -63,6 +63,7 @@ pub fn run() {
             commands::library::list_movie_genres_in_use,
             commands::library::update_genre_translation,
             commands::library::update_root_label,
+            commands::library::open_in_explorer,
             commands::tmdb_cmds::tmdb_search,
             commands::tmdb_cmds::tmdb_get_movie,
             commands::tmdb_cmds::tmdb_get_tv,

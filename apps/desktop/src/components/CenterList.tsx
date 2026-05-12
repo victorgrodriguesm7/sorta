@@ -173,10 +173,16 @@ export default function CenterList() {
       )}
       <ul>
         {currentList.map((m) => {
+          // Identity is (drive_root, id): the same `id` can recur on
+          // different drives since each drive has its own SQLite
+          // pool, so keying by id alone would collide and the active
+          // highlight would land on the wrong row.
           const active =
-            selection?.kind === "media" && selection.row.id === m.id;
+            selection?.kind === "media" &&
+            selection.row.id === m.id &&
+            selection.row.drive_root === m.drive_root;
           return (
-            <li key={m.id}>
+            <li key={`${m.drive_root}|${m.id}`}>
               <button
                 onClick={() => selectItem({ kind: "media", row: m })}
                 className={`block w-full truncate rounded px-3 py-2 text-left text-sm ${

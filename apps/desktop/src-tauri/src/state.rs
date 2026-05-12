@@ -66,6 +66,19 @@ impl AppStateInner {
             .map(|(root, handles)| (root.clone(), handles.db.clone()))
             .collect()
     }
+
+    /// Find which registered drive contains `abs_path` by prefix match.
+    /// Used by write commands that take an absolute filesystem path
+    /// (e.g. `link_media.source_folder`) and need to route to the
+    /// owning pool. Longest-match wins so a drive registered as
+    /// `D:\Movies\Sub` beats `D:\Movies` for paths inside the subdir.
+    pub fn drive_for_path(&self, abs_path: &Path) -> Option<PathBuf> {
+        self.drives
+            .keys()
+            .filter(|root| abs_path.starts_with(root))
+            .max_by_key(|root| root.as_os_str().len())
+            .cloned()
+    }
 }
 
 pub type AppState = Arc<RwLock<AppStateInner>>;

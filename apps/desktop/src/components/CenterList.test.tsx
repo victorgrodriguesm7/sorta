@@ -10,10 +10,10 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 const items = [
-  { folder: "/x", video_filename: "a.mkv", kind: "movie" as const },
-  { folder: "/x", video_filename: "b.mkv", kind: "movie" as const },
-  { folder: "/x", video_filename: "c.mkv", kind: "movie" as const },
-  { folder: "/x", video_filename: "d.mkv", kind: "movie" as const },
+  { folder: "/x", video_filename: "a.mkv", kind: "movie" as const, drive_root: "/x" },
+  { folder: "/x", video_filename: "b.mkv", kind: "movie" as const, drive_root: "/x" },
+  { folder: "/x", video_filename: "c.mkv", kind: "movie" as const, drive_root: "/x" },
+  { folder: "/x", video_filename: "d.mkv", kind: "movie" as const, drive_root: "/x" },
 ];
 
 beforeEach(() => {

@@ -19,8 +19,8 @@ beforeEach(() => {
       compression_codec: null,
     },
     uncatalogued: [
-      { folder: "/x", video_filename: "a.mkv", kind: "movie" },
-      { folder: "/y", video_filename: "b.mkv", kind: "movie" },
+      { folder: "/x", video_filename: "a.mkv", kind: "movie", drive_root: "/x" },
+      { folder: "/y", video_filename: "b.mkv", kind: "movie", drive_root: "/y" },
     ],
     movieGenres: [],
     movieGenresInUse: [

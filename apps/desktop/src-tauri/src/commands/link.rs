@@ -3,8 +3,10 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
 use tauri::State;
 
+use crate::commands::library::resolve_drive;
 use crate::db::episodes::{upsert_episode, NewEpisode};
 use crate::db::genres::{
     list_genres, primary_genre_for, set_media_genres, upsert_genre, GenreRow,
@@ -22,6 +24,17 @@ use crate::organizer::naming::{folder_name, sanitize_segment, strip_tmdb_tag};
 use crate::organizer::plan::{plan_link, LinkPlanInput};
 use crate::state::AppState;
 use crate::tmdb::TmdbClient;
+
+/// Resolve the drive + pool a write should target. If the caller
+/// passes `drive_root`, that wins. Otherwise we fall back to the
+/// primary drive — used by old single-drive callers during the
+/// frontend migration.
+async fn write_target(
+    state: &AppState,
+    drive_root: Option<&Path>,
+) -> AppResult<(SqlitePool, PathBuf)> {
+    resolve_drive(state, drive_root).await
+}
 
 #[derive(Debug, Deserialize)]
 pub struct LinkArgs {
@@ -97,12 +110,26 @@ pub async fn link_media(state: State<'_, AppState>, args: LinkArgs) -> AppResult
     let media_type = MediaType::parse(&args.media_type)
         .ok_or_else(|| AppError::Other(format!("invalid media_type: {}", args.media_type)))?;
 
+    // Route by the absolute source path: whichever registered drive
+    // contains the uncatalogued folder owns the resulting row. We
+    // can't fall back to the primary drive here — linking would
+    // copy the row into the wrong database and the file move would
+    // either fail (cross-volume rename) or silently catalog under a
+    // drive the user didn't pick.
     let (pool, hd_root, tmdb) = {
         let s = state.read().await;
-        let pool = s.db.clone().ok_or_else(|| AppError::Other("DB not initialized".into()))?;
-        let hd = s.hd_root.clone().ok_or_else(|| AppError::Other("HD not set".into()))?;
-        let t = s.tmdb.clone().ok_or_else(|| AppError::Other("TMDB key not set".into()))?;
-        (pool, hd, t)
+        let drive = s.drive_for_path(&args.source_folder).ok_or_else(|| {
+            AppError::Other(format!(
+                "source folder {} is not under any registered drive",
+                args.source_folder.display()
+            ))
+        })?;
+        let pool = s.pool_for(&drive)?;
+        let t = s
+            .tmdb
+            .clone()
+            .ok_or_else(|| AppError::Other("TMDB key not set".into()))?;
+        (pool, drive, t)
     };
 
     if find_by_tmdb_id(&pool, args.tmdb_id, media_type).await?.is_some() {
@@ -254,16 +281,15 @@ pub async fn link_media(state: State<'_, AppState>, args: LinkArgs) -> AppResult
 pub struct RenameArgs {
     pub media_id: i64,
     pub new_title: String,
+    /// Drive the media row lives on. Optional during the frontend
+    /// migration — falls back to the primary drive.
+    #[serde(default)]
+    pub drive_root: Option<PathBuf>,
 }
 
 #[tauri::command]
 pub async fn rename_media(state: State<'_, AppState>, args: RenameArgs) -> AppResult<MediaRow> {
-    let (pool, hd_root) = {
-        let s = state.read().await;
-        let pool = s.db.clone().ok_or_else(|| AppError::Other("DB not initialized".into()))?;
-        let hd = s.hd_root.clone().ok_or_else(|| AppError::Other("HD not set".into()))?;
-        (pool, hd)
-    };
+    let (pool, hd_root) = write_target(&state, args.drive_root.as_deref()).await?;
 
     let row = find_by_id(&pool, args.media_id)
         .await?
@@ -309,7 +335,8 @@ pub async fn rename_media(state: State<'_, AppState>, args: RenameArgs) -> AppRe
         .unwrap_or_else(|_| new_folder.to_string_lossy().to_string());
     update_folder_path(&pool, row.id, &new_rel).await?;
 
-    let updated = find_by_id(&pool, row.id).await?.unwrap();
+    let mut updated = find_by_id(&pool, row.id).await?.unwrap();
+    updated.drive_root = Some(hd_root);
     Ok(updated)
 }
 
@@ -375,12 +402,9 @@ fn rename_inside_folder(folder: &Path, new_stem: &str) -> AppResult<()> {
 pub async fn list_media_genres(
     state: State<'_, AppState>,
     media_id: i64,
+    drive_root: Option<PathBuf>,
 ) -> AppResult<Vec<GenreRow>> {
-    let pool = {
-        let s = state.read().await;
-        s.db.clone()
-            .ok_or_else(|| AppError::Other("DB not initialized".into()))?
-    };
+    let (pool, _drive) = write_target(&state, drive_root.as_deref()).await?;
     sqlx::query_as::<_, GenreRow>(
         "SELECT g.id, g.media_type, g.canonical_name, g.translated_name \
          FROM genres g \
@@ -399,6 +423,8 @@ pub struct ReorderGenresArgs {
     pub media_id: i64,
     /// Ordered list of genre ids. Index 0 = primary.
     pub genre_ids: Vec<i64>,
+    #[serde(default)]
+    pub drive_root: Option<PathBuf>,
 }
 
 /// Replace a media row's genres with `genre_ids` in the given order.
@@ -413,18 +439,7 @@ pub async fn reorder_media_genres(
         return Err(AppError::Other("genre_ids cannot be empty".into()));
     }
 
-    let (pool, hd_root) = {
-        let s = state.read().await;
-        let pool = s
-            .db
-            .clone()
-            .ok_or_else(|| AppError::Other("DB not initialized".into()))?;
-        let hd = s
-            .hd_root
-            .clone()
-            .ok_or_else(|| AppError::Other("HD not set".into()))?;
-        (pool, hd)
-    };
+    let (pool, hd_root) = write_target(&state, args.drive_root.as_deref()).await?;
 
     let row = find_by_id(&pool, args.media_id)
         .await?
@@ -499,7 +514,9 @@ pub async fn reorder_media_genres(
     let _ = KEY_SERIES_LABEL; // referenced via import
     let _ = merge_genre_folders;
 
-    Ok(find_by_id(&pool, args.media_id).await?.unwrap())
+    let mut updated = find_by_id(&pool, args.media_id).await?.unwrap();
+    updated.drive_root = Some(hd_root);
+    Ok(updated)
 }
 
 #[derive(Debug, Deserialize)]
@@ -579,21 +596,33 @@ pub async fn link_as_series(
         return Err(AppError::Other("start_episode must be >= 0".into()));
     }
 
+    // All episode sources must live on the same drive — series rows
+    // can't be split. Reject mixed-drive batches up front instead of
+    // half-cataloging the series.
     let (pool, hd_root, tmdb) = {
         let s = state.read().await;
-        let pool = s
-            .db
-            .clone()
-            .ok_or_else(|| AppError::Other("DB not initialized".into()))?;
-        let hd = s
-            .hd_root
-            .clone()
-            .ok_or_else(|| AppError::Other("HD not set".into()))?;
+        let first = &args.sources[0].folder;
+        let drive = s.drive_for_path(first).ok_or_else(|| {
+            AppError::Other(format!(
+                "source folder {} is not under any registered drive",
+                first.display()
+            ))
+        })?;
+        for src in &args.sources[1..] {
+            let other = s.drive_for_path(&src.folder);
+            if other.as_deref() != Some(&drive) {
+                return Err(AppError::Other(format!(
+                    "episode {} is on a different drive than the rest of the batch",
+                    src.folder.display(),
+                )));
+            }
+        }
+        let pool = s.pool_for(&drive)?;
         let t = s
             .tmdb
             .clone()
             .ok_or_else(|| AppError::Other("TMDB key not set".into()))?;
-        (pool, hd, t)
+        (pool, drive, t)
     };
 
     let series_label = get_setting_or(&pool, KEY_SERIES_LABEL, "Series").await?;
@@ -808,12 +837,9 @@ pub async fn link_as_series(
 pub async fn list_episodes(
     state: State<'_, AppState>,
     media_id: i64,
+    drive_root: Option<PathBuf>,
 ) -> AppResult<Vec<crate::db::episodes::EpisodeRow>> {
-    let pool = {
-        let s = state.read().await;
-        s.db.clone()
-            .ok_or_else(|| AppError::Other("DB not initialized".into()))?
-    };
+    let (pool, _drive) = write_target(&state, drive_root.as_deref()).await?;
     crate::db::episodes::list_episodes(&pool, media_id).await
 }
 
@@ -823,17 +849,16 @@ pub async fn set_media_is_new(
     state: State<'_, AppState>,
     media_id: i64,
     is_new: bool,
+    drive_root: Option<PathBuf>,
 ) -> AppResult<()> {
-    let pool = {
-        let s = state.read().await;
-        s.db.clone()
-            .ok_or_else(|| AppError::Other("DB not initialized".into()))?
-    };
+    let (pool, _drive) = write_target(&state, drive_root.as_deref()).await?;
     set_is_new(&pool, media_id, is_new).await
 }
 
 /// Settings command: update the translatable Season label. The season
 /// folders inside every catalogued series are renamed accordingly.
+/// Update the Season folder label across every registered drive.
+/// Each drive's series folders are renamed in place.
 #[tauri::command]
 pub async fn update_season_label(
     state: State<'_, AppState>,
@@ -841,59 +866,52 @@ pub async fn update_season_label(
 ) -> AppResult<()> {
     use crate::db::settings::set_setting;
 
-    let (pool, hd_root) = {
+    let pools = {
         let s = state.read().await;
-        let pool = s
-            .db
-            .clone()
-            .ok_or_else(|| AppError::Other("DB not initialized".into()))?;
-        let hd = s
-            .hd_root
-            .clone()
-            .ok_or_else(|| AppError::Other("HD not set".into()))?;
-        (pool, hd)
+        s.all_pools()
     };
 
-    let old = get_setting_or(&pool, KEY_SEASON_LABEL, "Season").await?;
-    set_setting(&pool, KEY_SEASON_LABEL, &label).await?;
-    if old == label {
-        return Ok(());
-    }
-
-    let series_label = get_setting_or(&pool, KEY_SERIES_LABEL, "Series").await?;
-    let series_root = hd_root.join(sanitize_segment(&series_label));
-    if !series_root.is_dir() {
-        return Ok(());
-    }
-
-    // For every series folder, rename `<old> N` -> `<new> N` subfolders.
-    let old_safe = sanitize_segment(&old);
-    let new_safe = sanitize_segment(&label);
-    let series_iter = match std::fs::read_dir(&series_root) {
-        Ok(it) => it,
-        Err(_) => return Ok(()),
-    };
-    for entry in series_iter.flatten() {
-        let series_path = entry.path();
-        if !series_path.is_dir() {
+    for (hd_root, pool) in pools {
+        let old = get_setting_or(&pool, KEY_SEASON_LABEL, "Season").await?;
+        set_setting(&pool, KEY_SEASON_LABEL, &label).await?;
+        if old == label {
             continue;
         }
-        let season_iter = match std::fs::read_dir(&series_path) {
+
+        let series_label = get_setting_or(&pool, KEY_SERIES_LABEL, "Series").await?;
+        let series_root = hd_root.join(sanitize_segment(&series_label));
+        if !series_root.is_dir() {
+            continue;
+        }
+
+        let old_safe = sanitize_segment(&old);
+        let new_safe = sanitize_segment(&label);
+        let series_iter = match std::fs::read_dir(&series_root) {
             Ok(it) => it,
             Err(_) => continue,
         };
-        for season in season_iter.flatten() {
-            let p = season.path();
-            let Some(name) = p.file_name().and_then(|n| n.to_str()) else {
+        for entry in series_iter.flatten() {
+            let series_path = entry.path();
+            if !series_path.is_dir() {
                 continue;
+            }
+            let season_iter = match std::fs::read_dir(&series_path) {
+                Ok(it) => it,
+                Err(_) => continue,
             };
-            if let Some(suffix) = name.strip_prefix(&format!("{old_safe} ")) {
-                let new_name = format!("{new_safe} {suffix}");
-                let dest = series_path.join(new_name);
-                if dest.exists() {
+            for season in season_iter.flatten() {
+                let p = season.path();
+                let Some(name) = p.file_name().and_then(|n| n.to_str()) else {
                     continue;
+                };
+                if let Some(suffix) = name.strip_prefix(&format!("{old_safe} ")) {
+                    let new_name = format!("{new_safe} {suffix}");
+                    let dest = series_path.join(new_name);
+                    if dest.exists() {
+                        continue;
+                    }
+                    let _ = std::fs::rename(&p, &dest);
                 }
-                let _ = std::fs::rename(&p, &dest);
             }
         }
     }
@@ -910,6 +928,8 @@ pub struct UnlinkArgs {
     /// row is removed.
     #[serde(default = "default_true")]
     pub rename_back: bool,
+    #[serde(default)]
+    pub drive_root: Option<PathBuf>,
 }
 
 fn default_true() -> bool {
@@ -934,18 +954,7 @@ pub async fn unlink_media(
 ) -> AppResult<UnlinkResult> {
     use crate::db::media::delete_media;
 
-    let (pool, hd_root) = {
-        let s = state.read().await;
-        let pool = s
-            .db
-            .clone()
-            .ok_or_else(|| AppError::Other("DB not initialized".into()))?;
-        let hd = s
-            .hd_root
-            .clone()
-            .ok_or_else(|| AppError::Other("HD not set".into()))?;
-        (pool, hd)
-    };
+    let (pool, hd_root) = write_target(&state, args.drive_root.as_deref()).await?;
 
     let row = find_by_id(&pool, args.media_id)
         .await?
@@ -1098,21 +1107,11 @@ pub struct RecatalogPlan {
 pub async fn plan_recatalog_series(
     state: State<'_, AppState>,
     media_id: i64,
+    drive_root: Option<PathBuf>,
 ) -> AppResult<RecatalogPlan> {
     use crate::organizer::recatalog::discover_seasons;
 
-    let (pool, hd_root) = {
-        let s = state.read().await;
-        let pool = s
-            .db
-            .clone()
-            .ok_or_else(|| AppError::Other("DB not initialized".into()))?;
-        let hd = s
-            .hd_root
-            .clone()
-            .ok_or_else(|| AppError::Other("HD not set".into()))?;
-        (pool, hd)
-    };
+    let (pool, hd_root) = write_target(&state, drive_root.as_deref()).await?;
 
     let row = find_by_id(&pool, media_id)
         .await?
@@ -1175,6 +1174,8 @@ pub struct RecatalogArgs {
     /// this value. `None` leaves it untouched.
     #[serde(default)]
     pub set_is_new: Option<bool>,
+    #[serde(default)]
+    pub drive_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1203,21 +1204,12 @@ pub async fn recatalog_series(
 ) -> AppResult<RecatalogResult> {
     use crate::organizer::recatalog::{discover_seasons, parse_season_episode};
 
-    let (pool, hd_root, tmdb) = {
+    let (pool, hd_root) = write_target(&state, args.drive_root.as_deref()).await?;
+    let tmdb = {
         let s = state.read().await;
-        let pool = s
-            .db
+        s.tmdb
             .clone()
-            .ok_or_else(|| AppError::Other("DB not initialized".into()))?;
-        let hd = s
-            .hd_root
-            .clone()
-            .ok_or_else(|| AppError::Other("HD not set".into()))?;
-        let t = s
-            .tmdb
-            .clone()
-            .ok_or_else(|| AppError::Other("TMDB key not set".into()))?;
-        (pool, hd, t)
+            .ok_or_else(|| AppError::Other("TMDB key not set".into()))?
     };
 
     let row = find_by_id(&pool, args.media_id)

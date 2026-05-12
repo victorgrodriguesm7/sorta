@@ -16,6 +16,7 @@ use crate::compress::job::{
     cleanup_originals, new_job_id, run_job, CancelFlag, JobProgress, JobReport, JobReporter,
     JobSettings,
 };
+use crate::commands::library::resolve_drive;
 use crate::compress::preview::{
     encode_preview, folder_video_bytes, measure_original_segment, probe_duration, PreviewClip,
 };
@@ -40,17 +41,12 @@ pub async fn ffmpeg_status() -> AppResult<FfmpegStatus> {
 }
 
 #[tauri::command]
-pub async fn media_total_bytes(state: State<'_, AppState>, media_id: i64) -> AppResult<u64> {
-    let (pool, hd_root) = {
-        let s = state.read().await;
-        (
-            s.db.clone()
-                .ok_or_else(|| AppError::Other("DB not initialized".into()))?,
-            s.hd_root
-                .clone()
-                .ok_or_else(|| AppError::Other("HD not set".into()))?,
-        )
-    };
+pub async fn media_total_bytes(
+    state: State<'_, AppState>,
+    media_id: i64,
+    drive_root: Option<PathBuf>,
+) -> AppResult<u64> {
+    let (pool, hd_root) = resolve_drive(&state, drive_root.as_deref()).await?;
     let row = find_by_id(&pool, media_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("media {media_id}")))?;
@@ -68,6 +64,8 @@ pub struct PreviewArgs {
     pub start_seconds: Option<f64>,
     /// Defaults to 15 s.
     pub duration_seconds: Option<f64>,
+    #[serde(default)]
+    pub drive_root: Option<PathBuf>,
 }
 
 #[tauri::command]
@@ -75,16 +73,7 @@ pub async fn generate_compression_preview(
     state: State<'_, AppState>,
     args: PreviewArgs,
 ) -> AppResult<PreviewBundleDto> {
-    let (pool, hd_root) = {
-        let s = state.read().await;
-        (
-            s.db.clone()
-                .ok_or_else(|| AppError::Other("DB not initialized".into()))?,
-            s.hd_root
-                .clone()
-                .ok_or_else(|| AppError::Other("HD not set".into()))?,
-        )
-    };
+    let (pool, hd_root) = resolve_drive(&state, args.drive_root.as_deref()).await?;
     let row = find_by_id(&pool, args.media_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("media {}", args.media_id)))?;
@@ -250,6 +239,8 @@ pub struct StartCompressionArgs {
     pub crf: i32,
     pub downscale_720p: bool,
     pub exhaustive_verify: bool,
+    #[serde(default)]
+    pub drive_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Serialize)]
@@ -276,16 +267,10 @@ pub async fn start_compression(
     state: State<'_, AppState>,
     args: StartCompressionArgs,
 ) -> AppResult<StartCompressionResult> {
-    let (pool, hd_root, jobs) = {
+    let (pool, hd_root) = resolve_drive(&state, args.drive_root.as_deref()).await?;
+    let jobs = {
         let s = state.read().await;
-        (
-            s.db.clone()
-                .ok_or_else(|| AppError::Other("DB not initialized".into()))?,
-            s.hd_root
-                .clone()
-                .ok_or_else(|| AppError::Other("HD not set".into()))?,
-            s.jobs.clone(),
-        )
+        s.jobs.clone()
     };
     let row = find_by_id(&pool, args.media_id)
         .await?
@@ -352,17 +337,9 @@ pub struct CleanupResult {
 pub async fn cleanup_originals_for(
     state: State<'_, AppState>,
     media_id: i64,
+    drive_root: Option<PathBuf>,
 ) -> AppResult<CleanupResult> {
-    let (pool, hd_root) = {
-        let s = state.read().await;
-        (
-            s.db.clone()
-                .ok_or_else(|| AppError::Other("DB not initialized".into()))?,
-            s.hd_root
-                .clone()
-                .ok_or_else(|| AppError::Other("HD not set".into()))?,
-        )
-    };
+    let (pool, hd_root) = resolve_drive(&state, drive_root.as_deref()).await?;
     let row = find_by_id(&pool, media_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("media {media_id}")))?;
@@ -377,17 +354,9 @@ pub async fn cleanup_originals_for(
 pub async fn has_original_backups(
     state: State<'_, AppState>,
     media_id: i64,
+    drive_root: Option<PathBuf>,
 ) -> AppResult<bool> {
-    let (pool, hd_root) = {
-        let s = state.read().await;
-        (
-            s.db.clone()
-                .ok_or_else(|| AppError::Other("DB not initialized".into()))?,
-            s.hd_root
-                .clone()
-                .ok_or_else(|| AppError::Other("HD not set".into()))?,
-        )
-    };
+    let (pool, hd_root) = resolve_drive(&state, drive_root.as_deref()).await?;
     let row = find_by_id(&pool, media_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("media {media_id}")))?;

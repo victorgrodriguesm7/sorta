@@ -55,6 +55,10 @@ export interface MediaRow {
   catalogued_at: string;
   /** "Mark as new" flag set at cataloging time. */
   is_new: boolean;
+  /** Drive this row was fetched from. Stamped by the backend during
+   *  the fan-out read. Needed because `id` is per-pool and would
+   *  collide across drives. */
+  drive_root: string | null;
 }
 
 export interface RecatalogPlanSeason {
@@ -111,6 +115,8 @@ export interface UncataloguedItem {
   folder: string;
   video_filename: string;
   kind: UncataloguedKind;
+  /** Drive this item was discovered on. */
+  drive_root: string;
 }
 
 export interface ScanResult {
@@ -150,8 +156,11 @@ export const api = {
     invoke<MediaRow[]>("list_movies_by_genre", { genreId }),
   listMoviesByGenres: (genreIds: number[]) =>
     invoke<MediaRow[]>("list_movies_by_genres", { genreIds }),
-  getPosterUrl: (mediaId: number) =>
-    invoke<string | null>("get_poster_url", { mediaId }),
+  getPosterUrl: (mediaId: number, driveRoot?: string | null) =>
+    invoke<string | null>("get_poster_url", {
+      mediaId,
+      driveRoot: driveRoot ?? null,
+    }),
   listSeries: () => invoke<MediaRow[]>("list_series"),
   listMovieGenres: () => invoke<GenreRow[]>("list_movie_genres"),
   listMovieGenresInUse: () =>
@@ -160,6 +169,8 @@ export const api = {
     invoke<void>("update_genre_translation", { genreId, translated }),
   updateRootLabel: (kind: MediaType, label: string) =>
     invoke<void>("update_root_label", { kind, label }),
+  openInExplorer: (path: string) =>
+    invoke<void>("open_in_explorer", { path }),
   tmdbSearch: (query: string) =>
     invoke<SearchResult[]>("tmdb_search", { query }),
   linkMedia: (args: {
@@ -178,17 +189,32 @@ export const api = {
         is_new: args.isNew ?? false,
       },
     }),
-  renameMedia: (mediaId: number, newTitle: string) =>
+  renameMedia: (mediaId: number, newTitle: string, driveRoot?: string | null) =>
     invoke<MediaRow>("rename_media", {
-      args: { media_id: mediaId, new_title: newTitle },
+      args: {
+        media_id: mediaId,
+        new_title: newTitle,
+        drive_root: driveRoot ?? null,
+      },
     }),
-  listMediaGenres: (mediaId: number) =>
-    invoke<GenreRow[]>("list_media_genres", { mediaId }),
+  listMediaGenres: (mediaId: number, driveRoot?: string | null) =>
+    invoke<GenreRow[]>("list_media_genres", {
+      mediaId,
+      driveRoot: driveRoot ?? null,
+    }),
   tmdbSyncGenres: (mediaType: MediaType) =>
     invoke<GenreRow[]>("tmdb_sync_genres", { mediaType }),
-  reorderMediaGenres: (mediaId: number, genreIds: number[]) =>
+  reorderMediaGenres: (
+    mediaId: number,
+    genreIds: number[],
+    driveRoot?: string | null,
+  ) =>
     invoke<MediaRow>("reorder_media_genres", {
-      args: { media_id: mediaId, genre_ids: genreIds },
+      args: {
+        media_id: mediaId,
+        genre_ids: genreIds,
+        drive_root: driveRoot ?? null,
+      },
     }),
   linkAsSeries: (args: {
     tmdbId: number;
@@ -218,17 +244,28 @@ export const api = {
         })),
       },
     }),
-  listEpisodes: (mediaId: number) =>
-    invoke<EpisodeRow[]>("list_episodes", { mediaId }),
-  setMediaIsNew: (mediaId: number, isNew: boolean) =>
-    invoke<void>("set_media_is_new", { mediaId, isNew }),
-  planRecatalogSeries: (mediaId: number) =>
-    invoke<RecatalogPlan>("plan_recatalog_series", { mediaId }),
+  listEpisodes: (mediaId: number, driveRoot?: string | null) =>
+    invoke<EpisodeRow[]>("list_episodes", {
+      mediaId,
+      driveRoot: driveRoot ?? null,
+    }),
+  setMediaIsNew: (mediaId: number, isNew: boolean, driveRoot?: string | null) =>
+    invoke<void>("set_media_is_new", {
+      mediaId,
+      isNew,
+      driveRoot: driveRoot ?? null,
+    }),
+  planRecatalogSeries: (mediaId: number, driveRoot?: string | null) =>
+    invoke<RecatalogPlan>("plan_recatalog_series", {
+      mediaId,
+      driveRoot: driveRoot ?? null,
+    }),
   recatalogSeries: (args: {
     mediaId: number;
     rename?: boolean;
     downloadEpisodePosters?: boolean;
     setIsNew?: boolean | null;
+    driveRoot?: string | null;
   }) =>
     invoke<RecatalogResult>("recatalog_series", {
       args: {
@@ -236,17 +273,26 @@ export const api = {
         rename: args.rename ?? true,
         download_episode_posters: args.downloadEpisodePosters ?? true,
         set_is_new: args.setIsNew ?? null,
+        drive_root: args.driveRoot ?? null,
       },
     }),
   updateSeasonLabel: (label: string) =>
     invoke<void>("update_season_label", { label }),
-  unlinkMedia: (mediaId: number, renameBack = true) =>
+  unlinkMedia: (
+    mediaId: number,
+    renameBack = true,
+    driveRoot?: string | null,
+  ) =>
     invoke<{
       removed_media_id: number;
       new_folder_path: string | null;
       poster_deleted: boolean;
     }>("unlink_media", {
-      args: { media_id: mediaId, rename_back: renameBack },
+      args: {
+        media_id: mediaId,
+        rename_back: renameBack,
+        drive_root: driveRoot ?? null,
+      },
     }),
   ffmpegStatus: () =>
     invoke<{
@@ -255,8 +301,11 @@ export const api = {
       ffmpeg_version: string | null;
       hwaccels: string[];
     }>("ffmpeg_status"),
-  mediaTotalBytes: (mediaId: number) =>
-    invoke<number>("media_total_bytes", { mediaId }),
+  mediaTotalBytes: (mediaId: number, driveRoot?: string | null) =>
+    invoke<number>("media_total_bytes", {
+      mediaId,
+      driveRoot: driveRoot ?? null,
+    }),
   generateCompressionPreview: (args: {
     mediaId: number;
     crfs: number[];
@@ -264,6 +313,7 @@ export const api = {
     downscale720p: boolean;
     startSeconds?: number | null;
     durationSeconds?: number | null;
+    driveRoot?: string | null;
   }) =>
     invoke<{
       source_path: string;
@@ -289,6 +339,7 @@ export const api = {
         downscale_720p: args.downscale720p,
         start_seconds: args.startSeconds ?? null,
         duration_seconds: args.durationSeconds ?? null,
+        drive_root: args.driveRoot ?? null,
       },
     }),
   startCompression: (args: {
@@ -297,6 +348,7 @@ export const api = {
     crf: number;
     downscale720p: boolean;
     exhaustiveVerify: boolean;
+    driveRoot?: string | null;
   }) =>
     invoke<{ job_id: string }>("start_compression", {
       args: {
@@ -305,17 +357,21 @@ export const api = {
         crf: args.crf,
         downscale_720p: args.downscale720p,
         exhaustive_verify: args.exhaustiveVerify,
+        drive_root: args.driveRoot ?? null,
       },
     }),
   cancelCompression: (jobId: string) =>
     invoke<boolean>("cancel_compression", { jobId }),
-  cleanupOriginalsFor: (mediaId: number) =>
+  cleanupOriginalsFor: (mediaId: number, driveRoot?: string | null) =>
     invoke<{ files_removed: number; bytes_freed: number }>(
       "cleanup_originals_for",
-      { mediaId },
+      { mediaId, driveRoot: driveRoot ?? null },
     ),
-  hasOriginalBackups: (mediaId: number) =>
-    invoke<boolean>("has_original_backups", { mediaId }),
+  hasOriginalBackups: (mediaId: number, driveRoot?: string | null) =>
+    invoke<boolean>("has_original_backups", {
+      mediaId,
+      driveRoot: driveRoot ?? null,
+    }),
   discardPreviewDir: (tmpDir: string) =>
     invoke<void>("discard_preview_dir", { tmpDir }),
 };

@@ -48,7 +48,7 @@ export default function RecatalogDialog({ media, onClose, onDone }: Props) {
     setLoadingPlan(true);
     setPlanError(null);
     void api
-      .planRecatalogSeries(media.id)
+      .planRecatalogSeries(media.id, media.drive_root)
       .then((p) => setPlan(p))
       .catch((e) => setPlanError((e as Error).message))
       .finally(() => setLoadingPlan(false));
@@ -66,6 +66,7 @@ export default function RecatalogDialog({ media, onClose, onDone }: Props) {
         rename,
         downloadEpisodePosters,
         setIsNew: setIsNewOverride,
+        driveRoot: media.drive_root,
       });
       onDone(result);
     } catch (e) {
