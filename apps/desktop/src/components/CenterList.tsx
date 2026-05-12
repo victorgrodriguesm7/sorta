@@ -32,10 +32,10 @@ export default function CenterList() {
     e: React.MouseEvent<HTMLInputElement>,
     clickedKey: string,
   ) => {
-    // We drive the checked state from the store, not the input's
-    // intrinsic toggle, so preventDefault keeps the DOM in sync with
-    // whatever we end up applying below.
-    e.preventDefault();
+    // Don't preventDefault: we want the native checkbox toggle to
+    // proceed so the DOM stays visually in sync if React's re-render
+    // hasn't committed yet. Our store update below is what ultimately
+    // drives the controlled `checked` prop on the next render.
     e.stopPropagation();
 
     const keys = uncatalogued.map((u) => checkKey(u.folder, u.video_filename));
