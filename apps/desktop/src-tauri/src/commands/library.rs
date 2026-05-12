@@ -438,10 +438,17 @@ pub async fn open_in_explorer(path: String) -> AppResult<()> {
 
     #[cfg(target_os = "windows")]
     {
-        // `explorer.exe` returns a non-zero exit code on success in some
-        // Windows versions, so don't `wait()` on it — `spawn` succeeds
-        // once the process is launched, which is all we need.
-        std::process::Command::new("explorer").arg(&p).spawn()?;
+        // Explorer.exe is picky: forward-slash paths (which the
+        // frontend produces by joining `${hd_root}/${folder_path}`)
+        // make it silently fall back to the Documents folder. We
+        // normalize on the *string* form because `PathBuf` on Windows
+        // preserves whatever separator was used to construct it —
+        // the OS-level filesystem APIs accept either, but explorer
+        // does not.
+        let normalized = path.replace('/', "\\");
+        std::process::Command::new("explorer")
+            .arg(&normalized)
+            .spawn()?;
         return Ok(());
     }
 
