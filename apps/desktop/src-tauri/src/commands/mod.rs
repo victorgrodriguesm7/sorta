@@ -6,8 +6,8 @@ pub mod library;
 pub mod link;
 pub mod tmdb_cmds;
 
-pub use compress_cmds::*;
-pub use config_cmds::*;
-pub use library::*;
-pub use link::*;
-pub use tmdb_cmds::*;
+// We don't `pub use <module>::*` at this level: `library` and `link`
+// both expose submodules with the same name (`genres`, `episodes`),
+// so a glob re-export would be ambiguous. `lib.rs` registers each
+// command at its full canonical path, so callers don't need a flat
+// re-export anyway.
