@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLibrary, checkKey } from "@/stores/library";
 import CatalogAsSeriesDialog from "./CatalogAsSeriesDialog";
@@ -13,10 +13,51 @@ export default function CenterList() {
     selectItem,
     checked,
     toggleChecked,
+    setRangeChecked,
     clearChecked,
     refresh,
   } = useLibrary();
   const [seriesOpen, setSeriesOpen] = useState(false);
+
+  // Anchor for shift-click range select on the uncatalogued list.
+  // Holds the key of the last checkbox the user clicked *without*
+  // shift held. Stays a ref so updating it doesn't re-render.
+  const lastClickedKey = useRef<string | null>(null);
+
+  /** Handle a checkbox click. Shift held + anchor present + anchor
+   *  still in the current list → toggle every item in the inclusive
+   *  range to the *new* state of the clicked checkbox (Gmail-style).
+   *  Otherwise just toggle the single item. */
+  const handleCheckboxClick = (
+    e: React.MouseEvent<HTMLInputElement>,
+    clickedKey: string,
+  ) => {
+    // We drive the checked state from the store, not the input's
+    // intrinsic toggle, so preventDefault keeps the DOM in sync with
+    // whatever we end up applying below.
+    e.preventDefault();
+    e.stopPropagation();
+
+    const keys = uncatalogued.map((u) => checkKey(u.folder, u.video_filename));
+    const clickedIdx = keys.indexOf(clickedKey);
+    const anchorIdx = lastClickedKey.current
+      ? keys.indexOf(lastClickedKey.current)
+      : -1;
+
+    if (e.shiftKey && anchorIdx >= 0 && clickedIdx >= 0) {
+      const [lo, hi] =
+        anchorIdx < clickedIdx ? [anchorIdx, clickedIdx] : [clickedIdx, anchorIdx];
+      // The clicked item's new state drives the whole range — if it's
+      // currently unchecked the range becomes checked, and vice versa.
+      const desired = !checked.has(clickedKey);
+      setRangeChecked(keys.slice(lo, hi + 1), desired);
+    } else {
+      toggleChecked(clickedKey);
+    }
+    // Anchor moves to wherever the user clicked, with or without
+    // shift, so the next shift-click extends from here.
+    lastClickedKey.current = clickedKey;
+  };
 
   if (leftSelection.kind === "uncatalogued") {
     const checkedItems = uncatalogued.filter((u) =>
@@ -73,8 +114,12 @@ export default function CenterList() {
                   <input
                     type="checkbox"
                     checked={isChecked}
-                    onChange={() => toggleChecked(k)}
-                    onClick={(e) => e.stopPropagation()}
+                    // The whole click → state mapping happens in
+                    // handleCheckboxClick (shift-range, anchor track).
+                    // onChange is required by React's controlled-input
+                    // contract; the actual mutation is in onClick.
+                    onChange={() => {}}
+                    onClick={(e) => handleCheckboxClick(e, k)}
                     className="h-4 w-4 shrink-0 accent-accent"
                     aria-label={t("uncatalogued.toggle", "Toggle selection")}
                   />
