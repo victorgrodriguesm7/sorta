@@ -11,6 +11,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 beforeEach(() => {
   useLibrary.setState({
     config: {
+      hd_roots: ["D:/Movies"],
       hd_root: "D:/Movies",
       tmdb_api_key: "k",
       ui_language: "en-US",

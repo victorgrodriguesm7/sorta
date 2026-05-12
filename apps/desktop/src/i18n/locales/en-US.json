@@ -18,6 +18,13 @@
   "settings": {
     "title": "Settings",
     "hd_root": "Hard Drive Root",
+    "hd_roots_title": "Library drives",
+    "hd_roots_blurb": "Add every drive you want merged into the library. Cataloging and edits always target the drive each item lives on.",
+    "hd_root_add": "Add drive…",
+    "hd_root_remove": "Remove",
+    "hd_root_remove_confirm": "Remove {{path}} from the library? Its catalog stays on disk and you can re-add it later.",
+    "hd_root_unmounted_hint": "(not currently mounted)",
+    "hd_root_empty": "No drives registered yet.",
     "tmdb_api_key": "TMDB API Key",
     "ui_language": "Language",
     "movies_label": "Movies folder name",

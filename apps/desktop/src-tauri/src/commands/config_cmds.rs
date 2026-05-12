@@ -233,16 +233,20 @@ pub async fn initialize_with(
         return Ok(());
     }
 
-    // Open every drive. A failing drive surfaces immediately so the
-    // user sees the error (rather than us silently dropping it and
-    // showing a partial library).
+    // Open every drive. A missing drive (USB unplugged, network share
+    // disconnected) is skipped with a warning rather than aborting the
+    // whole init — otherwise one stale entry in the registered list
+    // would lock the user out of the settings UI where they could
+    // remove it. Drives that exist but fail to open (corrupt DB, etc.)
+    // still bubble up.
     let mut handles: Vec<(PathBuf, crate::state::DriveHandles, SqlitePool)> = Vec::new();
     for root in &cfg.hd_roots {
         if !root.exists() {
-            return Err(AppError::InvalidPath(format!(
-                "configured HD root {} no longer exists",
+            tracing::warn!(
+                "skipping registered HD root {} — not currently mounted",
                 root.display()
-            )));
+            );
+            continue;
         }
         let db = db::open(&root.join("sorta.db")).await?;
         let (tx, mut rx) = mpsc::unbounded_channel::<ChangeEvent>();
@@ -260,8 +264,13 @@ pub async fn initialize_with(
     }
 
     let tmdb = cfg.tmdb_api_key.as_ref().map(|k| TmdbClient::new(k.clone()));
-    let primary_root = cfg.hd_roots[0].clone();
-    let primary_db = handles[0].2.clone();
+
+    // Pick the first drive in `cfg.hd_roots` that actually opened —
+    // not necessarily `hd_roots[0]`, because that one may have been
+    // skipped above. If nothing opened (every registered drive is
+    // currently unmounted), leave the runtime state empty so the UI
+    // can render its "no drive" screen.
+    let primary = handles.first().map(|(root, _, db)| (root.clone(), db.clone()));
 
     {
         let mut s = state.write().await;
@@ -269,21 +278,31 @@ pub async fn initialize_with(
         for (root, drive_handles, _db) in handles {
             s.drives.insert(root, drive_handles);
         }
-        // Legacy single-drive mirror: pick the primary from the new map.
-        s.hd_root = Some(primary_root.clone());
-        s.db = Some(primary_db.clone());
+        match primary {
+            Some((root, db)) => {
+                s.hd_root = Some(root);
+                s.db = Some(db);
+            }
+            None => {
+                s.hd_root = None;
+                s.db = None;
+            }
+        }
         s.watcher = None; // Lives inside `drives[primary]` now.
         s.tmdb = tmdb;
     }
 
     // Refresh the manifest companion file alongside sorta.db on every
-    // drive so external readers see a current snapshot per HD.
-    for root in &cfg.hd_roots {
-        if let Ok(pool) = state.read().await.pool_for(root) {
-            crate::manifest::write_best_effort(root, &pool).await;
+    // drive that opened so external readers see a current snapshot.
+    let mounted_roots: Vec<PathBuf> = {
+        let s = state.read().await;
+        s.drives.keys().cloned().collect()
+    };
+    for root in mounted_roots {
+        if let Ok(pool) = state.read().await.pool_for(&root) {
+            crate::manifest::write_best_effort(&root, &pool).await;
         }
     }
 
-    let _ = primary_db; // keep the borrow alive across the lock release
     Ok(())
 }

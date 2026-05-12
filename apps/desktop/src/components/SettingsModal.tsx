@@ -46,7 +46,7 @@ export default function SettingsModal({ onClose }: Props) {
     }
   };
 
-  const pickHd = async () => {
+  const addHd = async () => {
     setError(null);
     try {
       const selected = await openDialog({ directory: true, multiple: false });
@@ -55,6 +55,21 @@ export default function SettingsModal({ onClose }: Props) {
         await loadConfig();
         await refresh();
       }
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const removeHd = async (path: string) => {
+    setError(null);
+    const ok = window.confirm(
+      t("settings.hd_root_remove_confirm", { path }),
+    );
+    if (!ok) return;
+    try {
+      await api.removeHdRoot(path);
+      await loadConfig();
+      await refresh();
     } catch (e) {
       setError((e as Error).message);
     }
@@ -117,22 +132,41 @@ export default function SettingsModal({ onClose }: Props) {
 
           <section className="mb-6 space-y-2">
             <label className="block text-xs uppercase tracking-wide text-neutral-500">
-              {t("settings.hd_root")}
+              {t("settings.hd_roots_title")}
             </label>
-            <div className="flex gap-2">
-              <input
-                readOnly
-                value={config?.hd_root ?? ""}
-                placeholder="—"
-                className="flex-1 rounded bg-neutral-800 px-3 py-2 text-sm"
-              />
-              <button
-                onClick={pickHd}
-                className="rounded bg-accent px-3 py-2 text-sm text-white hover:bg-accent-hover"
-              >
-                …
-              </button>
-            </div>
+            <p className="text-xs text-neutral-500">
+              {t("settings.hd_roots_blurb")}
+            </p>
+            {(config?.hd_roots?.length ?? 0) === 0 ? (
+              <div className="rounded bg-neutral-800/40 px-3 py-2 text-sm text-neutral-500">
+                {t("settings.hd_root_empty")}
+              </div>
+            ) : (
+              <ul className="space-y-1">
+                {config!.hd_roots.map((path) => (
+                  <li
+                    key={path}
+                    className="flex items-center gap-2 rounded bg-neutral-800/40 p-2"
+                  >
+                    <span className="flex-1 truncate font-mono text-xs text-neutral-200">
+                      {path}
+                    </span>
+                    <button
+                      onClick={() => removeHd(path)}
+                      className="rounded bg-neutral-700 px-2 py-1 text-xs text-neutral-200 hover:bg-red-700 hover:text-white"
+                    >
+                      {t("settings.hd_root_remove")}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <button
+              onClick={addHd}
+              className="rounded bg-accent px-3 py-2 text-sm text-white hover:bg-accent-hover"
+            >
+              {t("settings.hd_root_add")}
+            </button>
           </section>
 
           <section className="mb-6 space-y-2">
