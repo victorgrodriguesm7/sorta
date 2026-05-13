@@ -1,0 +1,44 @@
+[versions]
+# Toolchains
+agp = "8.7.2"
+kotlin = "2.0.21"
+junit = "4.13.2"
+# org.json is part of android.jar at runtime; we pull the standalone
+# artifact only for JVM unit tests so they don't need an emulator.
+orgJson = "20240303"
+
+# Instrumented test support
+androidxTestExt = "1.2.1"
+androidxTestRunner = "1.6.2"
+
+# AndroidX runtime
+androidxCore = "1.13.1"
+androidxAppcompat = "1.7.0"
+androidxLeanback = "1.0.0"
+androidxRecyclerview = "1.3.2"
+androidxLifecycle = "2.7.0"
+androidxDocumentfile = "1.0.1"
+kotlinxCoroutines = "1.7.3"
+
+# Imaging
+glide = "4.16.0"
+
+[libraries]
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
+androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "androidxAppcompat" }
+androidx-leanback = { module = "androidx.leanback:leanback", version.ref = "androidxLeanback" }
+androidx-recyclerview = { module = "androidx.recyclerview:recyclerview", version.ref = "androidxRecyclerview" }
+androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "androidxLifecycle" }
+androidx-documentfile = { module = "androidx.documentfile:documentfile", version.ref = "androidxDocumentfile" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
+glide = { module = "com.github.bumptech.glide:glide", version.ref = "glide" }
+
+junit = { module = "junit:junit", version.ref = "junit" }
+org-json = { module = "org.json:json", version.ref = "orgJson" }
+
+androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidxTestExt" }
+androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidxTestRunner" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

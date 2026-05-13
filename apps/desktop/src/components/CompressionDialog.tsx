@@ -141,6 +141,7 @@ export default function CompressionDialog({
         crfs: previewCrfs,
         codec,
         downscale720p,
+        driveRoot: media.drive_root,
       });
       setPreview(bundle);
       setChosenCrf(bundle.clips[Math.floor(bundle.clips.length / 2)].crf);
@@ -174,6 +175,7 @@ export default function CompressionDialog({
         crf: chosenCrf,
         downscale720p,
         exhaustiveVerify,
+        driveRoot: media.drive_root,
       });
       setJobId(r.job_id);
       setPhase("running");

@@ -13,11 +13,19 @@
     "search": "Search TMDB",
     "confirm": "Confirm",
     "cancel": "Cancel",
-    "save": "Save"
+    "save": "Save",
+    "open_in_explorer": "Open in file explorer"
   },
   "settings": {
     "title": "Settings",
     "hd_root": "Hard Drive Root",
+    "hd_roots_title": "Library drives",
+    "hd_roots_blurb": "Add every drive you want merged into the library. Cataloging and edits always target the drive each item lives on.",
+    "hd_root_add": "Add drive…",
+    "hd_root_remove": "Remove",
+    "hd_root_remove_confirm": "Remove {{path}} from the library? Its catalog stays on disk and you can re-add it later.",
+    "hd_root_unmounted_hint": "(not currently mounted)",
+    "hd_root_empty": "No drives registered yet.",
     "tmdb_api_key": "TMDB API Key",
     "ui_language": "Language",
     "movies_label": "Movies folder name",
@@ -32,7 +40,9 @@
     "secondary_genres": "Secondary genres",
     "no_selection": "Nothing selected",
     "none": "None",
-    "empty": "No items in this category yet."
+    "empty": "No items in this category yet.",
+    "season": "Season",
+    "episode_count": "{{count}} ep"
   },
   "first_run": {
     "intro": "Pick the hard drive that contains your movies and series."

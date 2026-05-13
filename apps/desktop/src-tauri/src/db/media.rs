@@ -49,6 +49,14 @@ pub struct MediaRow {
     /// Stored as 0/1 in SQLite.
     #[serde(default)]
     pub is_new: bool,
+    /// Drive this row was loaded from. Not stored in SQLite — stamped
+    /// by the command layer after a fan-out fetch so the frontend
+    /// (and write-side dispatch) can route operations back to the
+    /// originating pool. `None` for unit tests that bypass the
+    /// command layer.
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub drive_root: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug, Clone)]

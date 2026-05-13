@@ -48,14 +48,15 @@ export default function RightPanel() {
       setIsNew(selection.row.is_new);
       setEpisodes([]);
       const id = selection.row.id;
+      const drive = selection.row.drive_root;
       if (selection.row.media_type === "tv") {
         void api
-          .listEpisodes(id)
+          .listEpisodes(id, drive)
           .then(setEpisodes)
           .catch(() => setEpisodes([]));
       }
       void api
-        .listMediaGenres(id)
+        .listMediaGenres(id, drive)
         .then(setGenres)
         .catch((e) => setError((e as Error).message));
       // Prefer the locally cached poster (returned as a data: URL by the
@@ -63,7 +64,7 @@ export default function RightPanel() {
       // (typically the TMDB CDN).
       setPosterSrc(selection.row.poster_url ?? null);
       void api
-        .getPosterUrl(id)
+        .getPosterUrl(id, drive)
         .then((src) => {
           if (src) setPosterSrc(src);
         })
@@ -83,14 +84,15 @@ export default function RightPanel() {
   useEffect(() => {
     if (selection?.kind !== "media") return;
     const id = selection.row.id;
+    const drive = selection.row.drive_root;
     setTotalBytes(null);
     setHasOriginals(false);
     void api
-      .mediaTotalBytes(id)
+      .mediaTotalBytes(id, drive)
       .then(setTotalBytes)
       .catch(() => setTotalBytes(0));
     void api
-      .hasOriginalBackups(id)
+      .hasOriginalBackups(id, drive)
       .then(setHasOriginals)
       .catch(() => setHasOriginals(false));
   }, [selection, compressionDoneTick]);
@@ -140,18 +142,60 @@ export default function RightPanel() {
   }
 
   const { row } = selection;
-  const baseUrl = config?.hd_root ?? "";
+  // Resolve absolute paths against the row's own drive — falling back
+  // to `config.hd_root` (the primary drive) would point the file
+  // manager at the wrong disk when the row lives elsewhere.
+  const baseUrl = row.drive_root ?? config?.hd_root ?? "";
 
   const handleRename = async () => {
     setError(null);
     try {
-      await api.renameMedia(row.id, newTitle);
+      // The backend returns the *updated* row (new folder_path, same id).
+      // Without re-seating selection, the panel keeps rendering the
+      // pre-rename row and the input snaps back to the old title on
+      // the next selection effect — looks like nothing happened.
+      const updated = await api.renameMedia(row.id, newTitle, row.drive_root);
       setRenaming(false);
+      selectItem({ kind: "media", row: updated });
       await refresh();
     } catch (e) {
       setError((e as Error).message);
     }
   };
+
+  const handleOpenInExplorer = async () => {
+    setError(null);
+    try {
+      // `folder_path` is relative to the HD root; the backend resolves
+      // and reveals it. Pass the absolute path so the command stays
+      // ignorant of which drive a row lives on.
+      const abs = baseUrl
+        ? `${baseUrl}/${row.folder_path}`
+        : row.folder_path;
+      await api.openInExplorer(abs);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  /** Group episodes by season for the accordion view. Sorted by
+   *  season number, with episodes inside each season sorted by
+   *  episode number. */
+  const seasonGroups = (() => {
+    if (row.media_type !== "tv") return [];
+    const map = new Map<number, EpisodeRow[]>();
+    for (const ep of episodes) {
+      const arr = map.get(ep.season_number) ?? [];
+      arr.push(ep);
+      map.set(ep.season_number, arr);
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([season, eps]) => ({
+        season,
+        episodes: eps.sort((a, b) => a.episode_number - b.episode_number),
+      }));
+  })();
 
   return (
     <div className="flex flex-1 gap-6 overflow-y-auto p-6">
@@ -234,7 +278,7 @@ export default function RightPanel() {
               const next = e.target.checked;
               setIsNew(next);
               try {
-                await api.setMediaIsNew(row.id, next);
+                await api.setMediaIsNew(row.id, next, row.drive_root);
                 await refresh();
               } catch (err) {
                 setIsNew(!next);
@@ -251,12 +295,13 @@ export default function RightPanel() {
             <GenreEditor
               mediaId={row.id}
               mediaType={row.media_type === "tv" ? "tv" : "movie"}
+              driveRoot={row.drive_root}
               initialGenres={genres}
               onClose={() => setEditingGenres(false)}
               onSaved={async () => {
                 setEditingGenres(false);
                 await refresh();
-                const next = await api.listMediaGenres(row.id);
+                const next = await api.listMediaGenres(row.id, row.drive_root);
                 setGenres(next);
               }}
             />
@@ -297,31 +342,45 @@ export default function RightPanel() {
           )}
         </div>
 
-        {row.media_type === "tv" && episodes.length > 0 && (
-          <details className="rounded border border-neutral-800 bg-neutral-900/40">
-            <summary className="cursor-pointer select-none px-3 py-2 text-xs uppercase tracking-wide text-neutral-400">
-              {t("media.episodes", "Episodes")} ({episodes.length})
-            </summary>
-            <ul className="max-h-64 divide-y divide-neutral-800/60 overflow-y-auto text-xs">
-              {episodes.map((ep) => (
-                <li
-                  key={ep.id}
-                  className="flex items-baseline gap-2 px-3 py-1.5"
-                >
-                  <span className="font-mono text-accent">
-                    S{String(ep.season_number).padStart(2, "0")}E
-                    {String(ep.episode_number).padStart(2, "0")}
+        {row.media_type === "tv" && seasonGroups.length > 0 && (
+          <div className="space-y-1">
+            {seasonGroups.map(({ season, episodes: eps }) => (
+              <details
+                key={season}
+                className="rounded border border-neutral-800 bg-neutral-900/40"
+              >
+                <summary className="flex cursor-pointer select-none items-center justify-between gap-2 px-3 py-2 text-xs uppercase tracking-wide text-neutral-400">
+                  <span>
+                    {t("media.season", "Season")} {season}
                   </span>
-                  <span className="flex-1 truncate text-neutral-200">
-                    {ep.title ?? "—"}
+                  <span className="text-neutral-500">
+                    {t("media.episode_count", "{{count}} ep", {
+                      count: eps.length,
+                    })}
                   </span>
-                  {ep.air_date && (
-                    <span className="text-neutral-500">{ep.air_date}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </details>
+                </summary>
+                <ul className="max-h-64 divide-y divide-neutral-800/60 overflow-y-auto text-xs">
+                  {eps.map((ep) => (
+                    <li
+                      key={ep.id}
+                      className="flex items-baseline gap-2 px-3 py-1.5"
+                    >
+                      <span className="font-mono text-accent">
+                        S{String(ep.season_number).padStart(2, "0")}E
+                        {String(ep.episode_number).padStart(2, "0")}
+                      </span>
+                      <span className="flex-1 truncate text-neutral-200">
+                        {ep.title ?? "—"}
+                      </span>
+                      {ep.air_date && (
+                        <span className="text-neutral-500">{ep.air_date}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ))}
+          </div>
         )}
 
         {error && (
@@ -345,6 +404,12 @@ export default function RightPanel() {
             onClick={() => setSearchOpen(true)}
           >
             {t("actions.search")}
+          </button>
+          <button
+            className="rounded border border-neutral-700 px-3 py-1.5 text-sm text-neutral-200 hover:bg-neutral-800"
+            onClick={handleOpenInExplorer}
+          >
+            {t("actions.open_in_explorer", "Open in file explorer")}
           </button>
           {row.media_type === "tv" && (
             <button
@@ -378,8 +443,8 @@ export default function RightPanel() {
                 setCleaningUp(true);
                 setError(null);
                 try {
-                  await api.cleanupOriginalsFor(row.id);
-                  const fresh = await api.mediaTotalBytes(row.id);
+                  await api.cleanupOriginalsFor(row.id, row.drive_root);
+                  const fresh = await api.mediaTotalBytes(row.id, row.drive_root);
                   setTotalBytes(fresh);
                   setHasOriginals(false);
                 } catch (e) {
@@ -422,7 +487,7 @@ export default function RightPanel() {
                   setUnlinking(true);
                   setError(null);
                   try {
-                    await api.unlinkMedia(row.id, true);
+                    await api.unlinkMedia(row.id, true, row.drive_root);
                     selectItem(null);
                     await refresh();
                   } catch (e) {
@@ -486,7 +551,7 @@ export default function RightPanel() {
               await refresh();
               // Refresh the episodes section without changing selection.
               try {
-                const eps = await api.listEpisodes(row.id);
+                const eps = await api.listEpisodes(row.id, row.drive_root);
                 setEpisodes(eps);
               } catch {
                 /* non-fatal */

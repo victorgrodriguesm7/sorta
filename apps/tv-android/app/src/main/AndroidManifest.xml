@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- TV box deployment: drive is plugged into the box itself, app
+         reads it via direct paths (no Scoped Storage on API 25). -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
+    <!-- "This app is built for TVs." Lets the Leanback launcher pick
+         it up and lets the system know we don't need a touchscreen. -->
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+
+    <application
+        android:name=".SortaTvApp"
+        android:allowBackup="false"
+        android:banner="@drawable/banner_tv"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.SortaTv">
+
+        <activity
+            android:name=".ui.BrowseActivity"
+            android:exported="false"
+            android:theme="@style/Theme.SortaTv" />
+
+        <activity
+            android:name=".ui.SearchActivity"
+            android:exported="false"
+            android:theme="@style/Theme.SortaTv" />
+
+        <activity
+            android:name=".ui.SeriesActivity"
+            android:exported="false"
+            android:theme="@style/Theme.SortaTv" />
+
+        <activity
+            android:name=".ui.SettingsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.SortaTv" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.SortaTv">
+            <!-- Standard launcher intent for phone/tablet visibility. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Leanback launcher (Android TV / TV-flavoured boxes). -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+
+</manifest>

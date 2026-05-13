@@ -45,6 +45,8 @@ interface LibraryState {
   selectLeft: (sel: LeftSelection) => Promise<void>;
   selectItem: (sel: Selection | null) => void;
   toggleChecked: (key: string) => void;
+  /** Bulk-set the checked state for [keys] all at once (range select). */
+  setRangeChecked: (keys: string[], checked: boolean) => void;
   clearChecked: () => void;
   openCompression: (media: MediaRow, totalBytes: number) => void;
   closeCompression: (didFinish?: boolean) => void;
@@ -81,6 +83,15 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     const cur = new Set(get().checked);
     if (cur.has(key)) cur.delete(key);
     else cur.add(key);
+    set({ checked: cur });
+  },
+  setRangeChecked: (keys: string[], desired: boolean) => {
+    if (keys.length === 0) return;
+    const cur = new Set(get().checked);
+    for (const k of keys) {
+      if (desired) cur.add(k);
+      else cur.delete(k);
+    }
     set({ checked: cur });
   },
   clearChecked: () => set({ checked: new Set<string>() }),

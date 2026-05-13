@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Sorta TV</string>
+    <!-- Header label for the row of catalogued TV series. Movie rows
+         use the per-genre translated label from the desktop, so they
+         live in the database, not here. -->
+    <string name="row_series">Series</string>
+    <!-- Header label for the top row of the browse screen, showing
+         movies catalogued within the last 14 days that the user
+         flagged as "new". Hidden when the row is empty. -->
+    <string name="row_recently_added">Recently added</string>
+    <string name="playback_chooser_title">Open with</string>
+    <string name="playback_no_file">No video file found for %1$s</string>
+    <string name="search_results_header">Results for “%1$s”</string>
+    <string name="error_no_drive">No catalogued drive found. Plug in your hard drive and try again.</string>
+    <string name="error_missing_db">A drive is plugged in but no sorta.db was found at its root. Catalog the drive on the desktop app first.</string>
+    <string name="error_schema_too_new">This drive was written by a newer version of Sorta (schema %1$d) than this app understands (schema %2$d). Update Sorta TV to continue.</string>
+    <string name="series_empty">No episodes found on disk for this series.</string>
+
+    <!-- Resume confirmation dialog: shown before launching the player
+         when the user already has partial progress on a video. -->
+    <string name="resume_dialog_title">Continue where you left off?</string>
+    <string name="resume_dialog_message">You stopped at %1$s.</string>
+    <string name="resume_dialog_continue">Resume from %1$s</string>
+    <string name="resume_dialog_start_over">Start over</string>
+
+    <!-- Pill drawn over a poster card when the user has finished
+         the movie / episode. Short enough to fit a 160dp-wide
+         card without truncation. -->
+    <string name="card_watched_label">Watched</string>
+
+    <!-- Settings UI. The activity is reached via the MENU key on the
+         TV remote from the browse screen. -->
+    <string name="settings_section_app">Sorta TV</string>
+    <string name="settings_language_title">Language</string>
+    <string name="settings_language_subtitle">Pick the language used across the app.</string>
+    <string name="settings_language_system">Follow system</string>
+    <string name="settings_language_en">English</string>
+    <string name="settings_language_pt_br">Português (Brasil)</string>
+
+    <!-- Series episode list. `episode_list_item_title` formats as
+         "S01E03 · Episode Title". `_runtime_minutes` is the small
+         meta-line entry, shown after the air date. -->
+    <string name="episode_list_season_header">Season %1$d</string>
+    <string name="episode_list_item_title">S%1$02dE%2$02d · %3$s</string>
+    <string name="episode_list_runtime_minutes">%1$d min</string>
+</resources>

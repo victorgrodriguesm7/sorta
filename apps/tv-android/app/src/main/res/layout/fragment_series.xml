@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Vertical episode list for a single series. Replaces the
+    BrowseSupportFragment one-row-per-season layout. The series
+    poster + title sit at the top; the list itself takes the
+    remaining height and is focusable so the D-pad lands inside it
+    on first frame.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/background_dark">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="24dp">
+
+        <ImageView
+            android:id="@+id/series_poster"
+            android:layout_width="96dp"
+            android:layout_height="144dp"
+            android:scaleType="centerCrop"
+            android:background="@color/card_background"
+            android:contentDescription="@null" />
+
+        <TextView
+            android:id="@+id/series_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="16dp"
+            android:textSize="24sp"
+            android:textColor="?android:attr/textColorPrimary"
+            android:singleLine="true"
+            android:ellipsize="end" />
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/episode_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:paddingBottom="24dp"
+        android:clipToPadding="false"
+        android:focusable="true"
+        android:focusableInTouchMode="true" />
+</LinearLayout>

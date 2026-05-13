@@ -11,6 +11,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 beforeEach(() => {
   useLibrary.setState({
     config: {
+      hd_roots: ["D:/Movies"],
       hd_root: "D:/Movies",
       tmdb_api_key: "k",
       ui_language: "en-US",
@@ -18,8 +19,8 @@ beforeEach(() => {
       compression_codec: null,
     },
     uncatalogued: [
-      { folder: "/x", video_filename: "a.mkv", kind: "movie" },
-      { folder: "/y", video_filename: "b.mkv", kind: "movie" },
+      { folder: "/x", video_filename: "a.mkv", kind: "movie", drive_root: "/x" },
+      { folder: "/y", video_filename: "b.mkv", kind: "movie", drive_root: "/y" },
     ],
     movieGenres: [],
     movieGenresInUse: [

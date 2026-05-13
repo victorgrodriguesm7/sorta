@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Portuguese (Brazilian) translations. Mirrors values/strings.xml
+    string-for-string. When adding a new key to the default file,
+    add it here too — Android will fall back to the default if a
+    key is missing, but mismatched coverage tends to surface as
+    half-translated screens.
+-->
+<resources>
+    <string name="app_name">Sorta TV</string>
+
+    <string name="row_series">Séries</string>
+    <string name="row_recently_added">Adicionados recentemente</string>
+
+    <string name="playback_chooser_title">Abrir com</string>
+    <string name="playback_no_file">Nenhum arquivo de vídeo encontrado para %1$s</string>
+    <string name="search_results_header">Resultados para “%1$s”</string>
+
+    <string name="error_no_drive">Nenhum HD catalogado encontrado. Conecte o disco e tente novamente.</string>
+    <string name="error_missing_db">O disco está conectado mas não há sorta.db na raiz. Catalogue o disco no aplicativo desktop primeiro.</string>
+    <string name="error_schema_too_new">Este disco foi escrito por uma versão mais nova do Sorta (esquema %1$d) do que este aplicativo entende (esquema %2$d). Atualize o Sorta TV para continuar.</string>
+
+    <string name="series_empty">Nenhum episódio encontrado no disco para esta série.</string>
+
+    <string name="resume_dialog_title">Continuar de onde parou?</string>
+    <string name="resume_dialog_message">Você parou em %1$s.</string>
+    <string name="resume_dialog_continue">Retomar de %1$s</string>
+    <string name="resume_dialog_start_over">Recomeçar</string>
+
+    <string name="card_watched_label">Assistido</string>
+
+    <string name="settings_section_app">Sorta TV</string>
+    <string name="settings_language_title">Idioma</string>
+    <string name="settings_language_subtitle">Escolha o idioma usado em todo o aplicativo.</string>
+    <string name="settings_language_system">Seguir o sistema</string>
+    <string name="settings_language_en">Inglês</string>
+    <string name="settings_language_pt_br">Português (Brasil)</string>
+
+    <string name="episode_list_season_header">Temporada %1$d</string>
+    <string name="episode_list_item_title">S%1$02dE%2$02d · %3$s</string>
+    <string name="episode_list_runtime_minutes">%1$d min</string>
+</resources>
