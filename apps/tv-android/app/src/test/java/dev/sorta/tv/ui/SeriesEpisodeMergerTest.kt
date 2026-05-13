@@ -39,7 +39,13 @@ class SeriesEpisodeMergerTest {
         assertEquals("Pilot", season.items[0].title)
         assertEquals("First.", season.items[0].overview)
         // File path comes from the table row.
-        assertEquals("/x/s01e01.mkv", season.items[0].file?.path?.lowercase())
+        // Normalize separators — on Windows test hosts `File("/x/…").path`
+        // comes back with backslashes; the production target (Android)
+        // keeps forward slashes.
+        assertEquals(
+            "/x/s01e01.mkv",
+            season.items[0].file?.path?.replace('\\', '/')?.lowercase(),
+        )
     }
 
     @Test
