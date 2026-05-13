@@ -48,7 +48,11 @@ object PlaybackIntent {
      */
     fun build(file: File): PlaybackRequest = PlaybackRequest(
         action = PlaybackRequest.ACTION_VIEW,
-        filePath = file.absolutePath,
+        // `file.path` (not `absolutePath`) so the string survives
+        // verbatim — production callers always hand us already-absolute
+        // paths from the catalog, and `absolutePath` would re-anchor
+        // relative inputs against the JVM CWD on the test host.
+        filePath = file.path,
         mimeType = "video/*",
         flags = PlaybackRequest.FLAG_GRANT_READ_URI_PERMISSION,
     )

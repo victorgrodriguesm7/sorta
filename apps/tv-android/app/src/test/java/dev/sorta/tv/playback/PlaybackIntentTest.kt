@@ -22,7 +22,10 @@ class PlaybackIntentTest {
         // We hand the raw path to the UI layer so it can build the
         // triple-slash file:/// URI via Uri.fromFile — see the
         // PlaybackRequest.filePath kdoc for why.
-        assertEquals(path, req.filePath)
+        // Normalize separators — on a Windows test host `File("/…").path`
+        // comes back with backslashes; the production target (Android)
+        // keeps the forward slashes from the catalog.
+        assertEquals(path, req.filePath.replace('\\', '/'))
     }
 
     @Test
