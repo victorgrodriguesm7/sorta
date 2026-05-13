@@ -61,7 +61,7 @@ class CatalogCheckTest {
         val result = CatalogCheck.run(
             storageRoot = tmp.root,
             known = 5,
-        ) { dbFile -> versions[dbFile.parentFile] }
+        ) { dbFile -> versions[dbFile.parentFile!!] }
         val ok = result as CatalogCheck.Result.Ok
         assertEquals(listOf(v5), ok.driveRoots)
         assertEquals(5, ok.schemaVersion)
@@ -75,7 +75,7 @@ class CatalogCheckTest {
         val result = CatalogCheck.run(
             storageRoot = tmp.root,
             known = 4,
-        ) { dbFile -> versions[dbFile.parentFile.name] }
+        ) { dbFile -> versions[dbFile.parentFile!!.name] }
         assertEquals(CatalogCheck.Result.SchemaTooNew(onDisk = 7, known = 4), result)
     }
 
@@ -91,7 +91,7 @@ class CatalogCheckTest {
         val result = CatalogCheck.run(
             storageRoot = tmp.root,
             known = 4,
-        ) { dbFile -> perDrive[dbFile.parentFile] }
+        ) { dbFile -> perDrive[dbFile.parentFile!!] }
         val ok = result as CatalogCheck.Result.Ok
         assertEquals(listOf(current), ok.driveRoots)
         assertEquals(4, ok.schemaVersion)
